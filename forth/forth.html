@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Little Forth</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #11141b;
+    --line: #262b38;
+    --text: #d9dce4;
+    --muted: #7d8496;
+    --in: #e9c46a;
+    --ok: #6fbf73;
+    --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 1100px); display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+  @media (max-width: 760px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .term {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    display: flex; flex-direction: column; height: calc(100vh - 32px); min-height: 360px;
+  }
+  #out {
+    flex: 1; margin: 0; padding: 12px 14px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font: 13.5px/1.5 ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+  #out .in { color: var(--in); }
+  #out .ok { color: var(--ok); }
+  #out .err { color: var(--err); }
+  #out .note { color: var(--muted); }
+  .prompt { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding: 8px 14px; }
+  .prompt span { color: var(--in); font-family: ui-monospace, monospace; }
+  #cmd {
+    flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text);
+    font: 13.5px ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+  #stack { padding: 6px 14px 10px; color: var(--muted); font: 12.5px ui-monospace, monospace; }
+  aside { display: flex; flex-direction: column; gap: 12px; }
+  canvas {
+    width: 100%; aspect-ratio: 1; image-rendering: pixelated; display: block;
+    border: 1px solid var(--line); border-radius: 8px; background: #0d0f14;
+  }
+  h2 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 4px 0 0; text-transform: uppercase; letter-spacing: .06em; }
+  .examples { display: flex; flex-wrap: wrap; gap: 6px; }
+  button {
+    font: inherit; font-size: 13px; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  }
+  button:hover { border-color: #3a4152; }
+  .help { color: var(--muted); font-size: 13px; }
+  .help code { color: var(--text); font-family: ui-monospace, monospace; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<main>
+  <section class="term">
+    <pre id="out"></pre>
+    <div id="stack"></div>
+    <label class="prompt"><span>&gt;</span><input id="cmd" autocomplete="off" spellcheck="false" autofocus aria-label="Forth input"></label>
+  </section>
+  <aside>
+    <canvas id="screen" width="64" height="64"></canvas>
+    <h2>Examples</h2>
+    <div class="examples" id="examples"></div>
+    <h2>Drawing</h2>
+    <p class="help">
+      <code>plot ( x y c -- )</code> sets a pixel, colour 0–15.
+      <code>cls</code> clears. <code>rnd ( n -- r )</code> gives 0 to n−1.
+      The screen is 64 by 64.
+    </p>
+    <p class="help"><code>words</code> lists everything. ↑ and ↓ walk your history.</p>
+  </aside>
+</main>
+<script>
+class ForthError extends Error {}
+
+// --- machine -------------------------------------------------------------
+
+const ds = [];          // data stack
+const rs = [];          // return stack: loop parameters and >r
+const mem = [];         // cells for variable, create, allot
+const dict = new Map(); // name -> { name, fn } or { name, code }
+const MAX_STEPS = 5_000_000;
+const MAX_DEPTH = 1000;
+const TRUE = -1;
+
+let steps = 0;
+let depth = 0;
+
+function push(v) { ds.push(v | 0); }
+function pop() {
+  if (ds.length === 0) throw new ForthError('stack underflow');
+  return ds.pop();
+}
+const flag = b => (b ? TRUE : 0);
+
+function execute(w) {
+  if (w.fn) w.fn();
+  else run(w.code);
+}
+
+/** Inner interpreter. Ops: call, lit, jmp, jz, str, do, loop, leave, exit. */
+function run(code) {
+  if (++depth > MAX_DEPTH) throw new ForthError('return stack overflow (runaway recursion?)');
+  const rsBase = rs.length;
+  try {
+    let ip = 0;
+    while (ip < code.length) {
+      if (++steps > MAX_STEPS) throw new ForthError('stopped after 5 million steps (infinite loop?)');
+      const ins = code[ip++];
+      switch (ins.op) {
+        case 'call': execute(ins.w); break;
+        case 'lit': ds.push(ins.v); break;
+        case 'jmp': ip = ins.to; break;
+        case 'jz': if (pop() === 0) ip = ins.to; break;
+        case 'str': say(ins.s); break;
+        case 'do': {
+          const start = pop(), limit = pop();
+          rs.push(limit, start);
+          break;
+        }
+        case 'loop': {
+          const step = ins.plus ? pop() : 1;
+          const k = rs.length - 1;
+          const before = rs[k] - rs[k - 1];
+          rs[k] += step;
+          const after = rs[k] - rs[k - 1];
+          const hasCrossed = (before < 0) !== (after < 0);
+          if (hasCrossed) rs.length -= 2;
+          else ip = ins.to;
+          break;
+        }
+        case 'leave': rs.length -= 2; ip = ins.to; break;
+        case 'exit': rs.length = rsBase; return;
+      }
+    }
+  } finally {
+    depth--;
+  }
+}
+
+// --- input ---------------------------------------------------------------
+
+let src = '';
+let pos = 0;
+
+function token() {
+  while (pos < src.length && /\s/.test(src[pos])) pos++;
+  if (pos >= src.length) return null;
+  const start = pos;
+  while (pos < src.length && !/\s/.test(src[pos])) pos++;
+  return src.slice(start, pos);
+}
+
+function name(what) {
+  const t = token();
+  if (t === null) throw new ForthError(`${what} needs a name`);
+  return t.toLowerCase();
+}
+
+/** Text up to `end`, consuming it. Skips the one space after the opening word. */
+function upTo(end) {
+  if (src[pos] === ' ') pos++;
+  const at = src.indexOf(end, pos);
+  const stop = at < 0 ? src.length : at;
+  const s = src.slice(pos, stop);
+  pos = at < 0 ? src.length : at + 1;
+  return s;
+}
+
+function number(t) {
+  if (/^-?\d+$/.test(t)) return parseInt(t, 10) | 0;
+  if (/^\$-?[0-9a-f]+$/i.test(t)) return parseInt(t.slice(1), 16) | 0;
+  return null;
+}
+
+// --- compiler ------------------------------------------------------------
+
+let compiling = null; // { w, code, cs } while inside : ... ;
+
+function emit(ins) { compiling.code.push(ins); return compiling.code.length - 1; }
+function here() { return compiling.code.length; }
+
+function needCompiling(word) {
+  if (!compiling) throw new ForthError(`${word} only works inside a : definition`);
+}
+
+function popControl(word, ...tags) {
+  const c = compiling.cs.pop();
+  if (!c || !tags.includes(c.tag)) throw new ForthError(`${word} without a matching ${tags.join(' or ')}`);
+  return c;
+}
+
+function evaluate(text) {
+  src = text;
+  pos = 0;
+  steps = 0;
+  let t;
+  while ((t = token()) !== null) {
+    const w = dict.get(t.toLowerCase());
+    if (w) {
+      if (compiling && !w.immediate) emit({ op: 'call', w });
+      else execute(w);
+      continue;
+    }
+    const n = number(t);
+    if (n === null) throw new ForthError(`${t} ?`);
+    if (compiling) emit({ op: 'lit', v: n });
+    else push(n);
+  }
+}
+
+// --- words ---------------------------------------------------------------
+
+function def(names, fn, immediate = false) {
+  for (const n of names.split(' ')) dict.set(n, { name: n, fn, immediate });
+}
+const bin = (names, f) => def(names, () => { const b = pop(), a = pop(); push(f(a, b)); });
+const un = (names, f) => def(names, () => push(f(pop())));
+
+bin('+', (a, b) => a + b);
+bin('-', (a, b) => a - b);
+bin('*', (a, b) => Math.imul(a, b));
+def('/', () => { const b = pop(), a = pop(); if (b === 0) throw new ForthError('division by zero'); push(Math.trunc(a / b)); });
+def('mod', () => { const b = pop(), a = pop(); if (b === 0) throw new ForthError('division by zero'); push(a % b); });
+def('/mod', () => { const b = pop(), a = pop(); if (b === 0) throw new ForthError('division by zero'); push(a % b); push(Math.trunc(a / b)); });
+bin('min', Math.min);
+bin('max', Math.max);
+bin('and', (a, b) => a & b);
+bin('or', (a, b) => a | b);
+bin('xor', (a, b) => a ^ b);
+bin('lshift', (a, b) => a << b);
+bin('rshift', (a, b) => a >>> b);
+bin('=', (a, b) => flag(a === b));
+bin('<>', (a, b) => flag(a !== b));
+bin('<', (a, b) => flag(a < b));
+bin('>', (a, b) => flag(a > b));
+un('negate', a => -a);
+un('abs', Math.abs);
+un('invert', a => ~a);
+un('1+', a => a + 1);
+un('1-', a => a - 1);
+un('2*', a => a << 1);
+un('2/', a => a >> 1);
+un('0=', a => flag(a === 0));
+un('0<', a => flag(a < 0));
+un('0>', a => flag(a > 0));
+un('cells', a => a);
+
+def('dup', () => { const a = pop(); push(a); push(a); });
+def('?dup', () => { const a = pop(); push(a); if (a !== 0) push(a); });
+def('drop', () => { pop(); });
+def('swap', () => { const b = pop(), a = pop(); push(b); push(a); });
+def('over', () => { const b = pop(), a = pop(); push(a); push(b); push(a); });
+def('rot', () => { const c = pop(), b = pop(), a = pop(); push(b); push(c); push(a); });
+def('-rot', () => { const c = pop(), b = pop(), a = pop(); push(c); push(a); push(b); });
+def('nip', () => { const b = pop(); pop(); push(b); });
+def('tuck', () => { const b = pop(), a = pop(); push(b); push(a); push(b); });
+def('2dup', () => { const b = pop(), a = pop(); push(a); push(b); push(a); push(b); });
+def('2drop', () => { pop(); pop(); });
+def('2swap', () => { const d = pop(), c = pop(), b = pop(), a = pop(); push(c); push(d); push(a); push(b); });
+def('pick', () => {
+  const n = pop();
+  if (n < 0 || n >= ds.length) throw new ForthError('pick out of range');
+  push(ds[ds.length - 1 - n]);
+});
+def('depth', () => push(ds.length));
+
+def('>r', () => rs.push(pop()));
+def('r>', () => { if (rs.length === 0) throw new ForthError('return stack underflow'); push(rs.pop()); });
+def('r@', () => push(rs[rs.length - 1]));
+def('i', () => { if (rs.length < 2) throw new ForthError('i outside a loop'); push(rs[rs.length - 1]); });
+def('j', () => { if (rs.length < 4) throw new ForthError('j outside a nested loop'); push(rs[rs.length - 3]); });
+
+def('.', () => say(pop() + ' '));
+def('.s', () => say(`<${ds.length}> ${ds.join(' ')} `));
+def('cr', () => say('\n'));
+def('emit', () => say(String.fromCharCode(pop())));
+def('space', () => say(' '));
+def('spaces', () => say(' '.repeat(Math.max(0, pop()))));
+def('words', () => say([...dict.keys()].reverse().join(' ') + ' '));
+
+def('variable', () => {
+  const n = name('variable');
+  const addr = mem.length;
+  mem.push(0);
+  def(n, () => push(addr));
+});
+def('constant', () => {
+  const n = name('constant');
+  const v = pop();
+  def(n, () => push(v));
+});
+def('create', () => {
+  const n = name('create');
+  const addr = mem.length;
+  def(n, () => push(addr));
+});
+def('allot', () => { const n = pop(); for (let k = 0; k < n; k++) mem.push(0); });
+def(',', () => mem.push(pop()));
+def('here', () => push(mem.length));
+function cellAt(a) {
+  if (a < 0 || a >= mem.length) throw new ForthError(`no cell at address ${a}`);
+  return a;
+}
+def('!', () => { const a = cellAt(pop()); mem[a] = pop(); });
+def('@', () => push(mem[cellAt(pop())]));
+def('+!', () => { const a = cellAt(pop()); mem[a] = (mem[a] + pop()) | 0; });
+
+def('rnd', () => { const n = pop(); push(n > 0 ? Math.floor(Math.random() * n) : 0); });
+def('char', () => {
+  const t = token();
+  if (t === null) throw new ForthError('char needs a character');
+  const c = t.charCodeAt(0);
+  if (compiling) emit({ op: 'lit', v: c });
+  else push(c);
+}, true);
+
+// Comments and strings.
+def('(', () => { upTo(')'); }, true);
+def('\\', () => { pos = src.length; }, true);
+def('.(', () => say(upTo(')')), true);
+def('."', () => {
+  const s = upTo('"');
+  if (compiling) emit({ op: 'str', s });
+  else say(s);
+}, true);
+
+// Definitions.
+def(':', () => {
+  if (compiling) throw new ForthError(': inside a definition (missing ;?)');
+  const n = name(':');
+  const w = { name: n, code: [] };
+  compiling = { w, code: w.code, cs: [] };
+}, true);
+def(';', () => {
+  needCompiling(';');
+  if (compiling.cs.length) throw new ForthError(`unfinished ${compiling.cs.at(-1).tag} in ${compiling.w.name}`);
+  dict.set(compiling.w.name, compiling.w);
+  compiling = null;
+}, true);
+def('recurse', () => { needCompiling('recurse'); emit({ op: 'call', w: compiling.w }); }, true);
+def('exit', () => { needCompiling('exit'); emit({ op: 'exit' }); }, true);
+
+// Control flow. Each opener leaves a marker on the compile-time stack `cs`.
+def('if', () => {
+  needCompiling('if');
+  compiling.cs.push({ tag: 'if', at: emit({ op: 'jz', to: -1 }) });
+}, true);
+def('else', () => {
+  needCompiling('else');
+  const c = popControl('else', 'if');
+  const at = emit({ op: 'jmp', to: -1 });
+  compiling.code[c.at].to = here();
+  compiling.cs.push({ tag: 'if', at });
+}, true);
+def('then', () => {
+  needCompiling('then');
+  compiling.code[popControl('then', 'if').at].to = here();
+}, true);
+def('begin', () => { needCompiling('begin'); compiling.cs.push({ tag: 'begin', at: here() }); }, true);
+def('until', () => { needCompiling('until'); emit({ op: 'jz', to: popControl('until', 'begin').at }); }, true);
+def('again', () => { needCompiling('again'); emit({ op: 'jmp', to: popControl('again', 'begin').at }); }, true);
+def('while', () => {
+  needCompiling('while');
+  const top = compiling.cs.at(-1);
+  if (!top || top.tag !== 'begin') throw new ForthError('while without a matching begin');
+  compiling.cs.push({ tag: 'while', at: emit({ op: 'jz', to: -1 }) });
+}, true);
+def('repeat', () => {
+  needCompiling('repeat');
+  const w = popControl('repeat', 'while');
+  const b = popControl('repeat', 'begin');
+  emit({ op: 'jmp', to: b.at });
+  compiling.code[w.at].to = here();
+}, true);
+def('do', () => {
+  needCompiling('do');
+  emit({ op: 'do' });
+  compiling.cs.push({ tag: 'do', at: here(), leaves: [] });
+}, true);
+function closeLoop(word, plus) {
+  needCompiling(word);
+  const c = popControl(word, 'do');
+  emit({ op: 'loop', plus, to: c.at });
+  for (const at of c.leaves) compiling.code[at].to = here();
+}
+def('loop', () => closeLoop('loop', false), true);
+def('+loop', () => closeLoop('+loop', true), true);
+def('leave', () => {
+  needCompiling('leave');
+  const loop = compiling.cs.findLast(c => c.tag === 'do');
+  if (!loop) throw new ForthError('leave outside a do loop');
+  loop.leaves.push(emit({ op: 'leave', to: -1 }));
+}, true);
+
+// --- screen --------------------------------------------------------------
+
+const gfx = document.getElementById('screen').getContext('2d');
+const PALETTE = [
+  '#0d0f14', '#1d2b53', '#7e2553', '#008751', '#ab5236', '#5f574f', '#c2c3c7', '#fff1e8',
+  '#ff004d', '#ffa300', '#ffec27', '#00e436', '#29adff', '#83769c', '#ff77a8', '#ffccaa',
+];
+def('cls', () => { gfx.fillStyle = PALETTE[0]; gfx.fillRect(0, 0, 64, 64); });
+def('plot', () => {
+  const c = pop(), y = pop(), x = pop();
+  const isOnScreen = x >= 0 && x < 64 && y >= 0 && y < 64;
+  if (!isOnScreen) return;
+  gfx.fillStyle = PALETTE[c & 15];
+  gfx.fillRect(x, y, 1, 1);
+});
+
+// --- terminal ------------------------------------------------------------
+
+const out = document.getElementById('out');
+const cmd = document.getElementById('cmd');
+const stackEl = document.getElementById('stack');
+let pending = '';
+
+function say(s) { pending += s; }
+
+function write(text, cls) {
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = text;
+  out.append(span);
+  while (out.childNodes.length > 4000) out.firstChild.remove();
+  out.scrollTop = out.scrollHeight;
+}
+
+function showStack() {
+  const where = compiling ? `  · compiling ${compiling.w.name}` : '';
+  stackEl.textContent = `stack: ${ds.length ? ds.join(' ') : '(empty)'}${where}`;
+}
+
+function enter(line) {
+  write(line + ' ', 'in');
+  pending = '';
+  try {
+    evaluate(line);
+    write(pending);
+    write(compiling ? ' compiled\n' : ' ok\n', 'ok');
+  } catch (e) {
+    if (!(e instanceof ForthError)) throw e;
+    write(pending);
+    write(` ${e.message}\n`, 'err');
+    ds.length = 0;
+    rs.length = 0;
+    compiling = null;
+    depth = 0;
+  }
+  showStack();
+}
+
+const past = [];
+let back = 0;
+cmd.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const line = cmd.value;
+    cmd.value = '';
+    if (line.trim()) past.push(line);
+    back = 0;
+    enter(line);
+  } else if (e.key === 'ArrowUp' && back < past.length) {
+    back++;
+    cmd.value = past[past.length - back];
+    e.preventDefault();
+  } else if (e.key === 'ArrowDown' && back > 0) {
+    back--;
+    cmd.value = back ? past[past.length - back] : '';
+    e.preventDefault();
+  }
+});
+out.addEventListener('click', () => {
+  const hasSelection = getSelection().toString().length > 0;
+  if (!hasSelection) cmd.focus();
+});
+
+const EXAMPLES = {
+  squares: [
+    ': squares ( -- ) 11 1 do i dup * . loop ;',
+    'squares',
+  ],
+  fizzbuzz: [
+    ': fizz? ( n -- f ) 3 mod 0= dup if ." Fizz" then ;',
+    ': buzz? ( n -- f ) 5 mod 0= dup if ." Buzz" then ;',
+    ': fizzbuzz ( -- ) 21 1 do cr i dup fizz? over buzz? or 0= if dup . then drop loop ;',
+    'fizzbuzz',
+  ],
+  fibonacci: [
+    ': fib ( n -- f ) dup 2 < if exit then dup 1- recurse swap 2 - recurse + ;',
+    ': fibs ( -- ) 20 0 do i fib . loop ;',
+    'fibs',
+  ],
+  sierpinski: [
+    ': sierpinski ( -- ) cls 64 0 do 64 0 do i j and 0= if i j 10 plot then loop loop ;',
+    'sierpinski',
+  ],
+  rings: [
+    ': d2 ( x y -- d ) 32 - dup * swap 32 - dup * + ;',
+    ': rings ( -- ) 64 0 do 64 0 do i j 2dup d2 24 / 16 mod plot loop loop ;',
+    'rings',
+  ],
+  stars: [
+    ': stars ( n -- ) cls 0 do 64 rnd 64 rnd 4 rnd 6 + plot loop ;',
+    '300 stars',
+  ],
+};
+const examplesEl = document.getElementById('examples');
+for (const [label, lines] of Object.entries(EXAMPLES)) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.addEventListener('click', () => {
+    for (const line of lines) enter(line);
+    cmd.focus();
+  });
+  examplesEl.append(b);
+}
+
+write('Little Forth. Words go on a line, Enter runs them, numbers go on the stack.\n', 'note');
+write('Try  2 3 + .   or pick an example.\n\n', 'note');
+evaluate('cls');
+showStack();
+</script>
+</body>
+</html>
