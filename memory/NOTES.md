@@ -7,21 +7,27 @@ Built 2026-10-19 in the playground's seventh thread. It is the first project
 about memory, which is the one thing the threads here don't have.
 
 Its first memories are the playground itself: one picture per thread (sand,
-forth, terrarium, ripple, drum, snow, slime, and a shell spiral for this one).
-A later thread could add its own sibling to `SIBLINGS`.
+forth, terrarium, ripple, drum, snow, slime, a shell spiral for this one, and
+a speech bubble for `tongue/`, added by the eighth thread). A later thread
+could add its own sibling to `SIBLINGS`, then remeasure the numbers below.
+The 1982 numbers are for all nine.
+
+It is hard to tell siblings apart if they cut the same kind of shape out of
+a white field. The speech bubble does that, like forth's screen, and still
+recalls at 0.94 before any dreaming (just under the 0.95 bar).
 
 What comes out of the maths:
 
 - **A false memory nobody stored.** The siblings share a dark background, so
   under the plain 1982 Hebb rule every cue falls into one valley: the average
-  of them all. It remembers 2 of 8 (the two balanced ones, forth and ripple).
+  of them all. It remembers 2 of 9 (the two balanced ones, forth and ripple).
 - **Dreaming fixes it** (Hopfield, Feinstein and Palmer 1983, and Crick and
   Mitchison's "we dream in order to forget" the same year). Settle from noise,
   then unlearn where it landed by `EPS` = 0.01 of a stored picture. Early
-  dreams are all blends. By about 120 dreams it remembers all 8 from a 20%
+  dreams are all blends. By about 150 dreams it remembers all 9 from a 20%
   damaged copy, and the dreams have become the siblings and their negatives.
-- **Too much sleep is amnesia.** All 8 hold from 120 to 600 dreams. Then they
-  go: 7 at 650, 2 at 800, none by 900. After that, every cue settles to static
+- **Too much sleep is amnesia.** All 9 hold from 150 to 700 dreams. Then they
+  go: 7 at 800, 2 at 900, none by 1000. After that, every cue settles to static
   at near-zero energy.
 - **The capacity cliff.** Random pictures stored one at a time recall
   perfectly up to about 130, then fall apart at 0.138 N = 141, the
@@ -38,7 +44,8 @@ What comes out of the maths:
   cued memory in 2–5 steps. Below about 5 it lands on a blur, and thresholded,
   that blur is the same false memory the 1982 net fell into (0.91 overlap in
   Node). Between 4 and 6 there's a blend that leans towards the cue (snow
-  0.33, slime 0.19, terrarium 0.17).
+  0.33, slime 0.19, terrarium 0.17). These 2020 numbers were measured with
+  eight siblings, before tongue joined.
 
 ## Controls
 

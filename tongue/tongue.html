@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Tongue Handed Down</title>
+<style>
+  :root {
+    --bg: #0d0f17;
+    --panel: #171a28;
+    --line: #2a2e44;
+    --text: #e6e0d2;
+    --muted: #8b8da0;
+    --gold: #f0c640;
+    --shape: #d8b4fe;
+    --colour: #7ee0a1;
+    --motion: #fdba74;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 880px); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #10131d; }
+  #lex { cursor: pointer; }
+  #chart { cursor: ew-resize; touch-action: none; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #474e70; }
+  button[aria-pressed="true"] { border-color: var(--gold); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .info { color: var(--muted); font-size: 13px; }
+  .info b { color: var(--text); font-weight: 500; }
+  #caption { color: var(--text); }
+  #status { color: var(--gold); min-height: 1.4em; }
+  #read { min-height: 1.4em; }
+  #gloss { min-height: 1.4em; color: var(--muted); }
+  .m-shape { color: var(--shape); } .m-colour { color: var(--colour); } .m-motion { color: var(--motion); }
+  .gloss-part { white-space: nowrap; margin-right: 14px; }
+  .knob { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 260px; }
+  .knob input { flex: 1; min-width: 110px; accent-color: var(--gold); }
+  .knob span { color: var(--muted); font-size: 13px; }
+  .knob .v { color: var(--text); min-width: 2.4em; }
+  #you { display: none; border: 1px solid var(--line); border-radius: 8px; background: #10131d; padding: 14px; flex-direction: column; gap: 12px; }
+  #you.on { display: flex; }
+  #you .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+  #you .card { display: flex; flex-direction: column; align-items: center; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 4px; }
+  #you .card canvas { border: 0; background: transparent; width: 72px; height: 54px; }
+  #you .word { font-size: 16px; letter-spacing: 0.02em; }
+  #you input { width: 88px; font: 14px ui-monospace, monospace; text-align: center; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px; }
+  #you input.bad { border-color: #e2605a; }
+  #you input.good { border-color: #4f7a5e; }
+  footer { color: #585c72; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar" id="scenes"></div>
+  <div id="caption" class="info"></div>
+  <canvas id="lex"></canvas>
+  <div id="you"></div>
+  <div class="info" id="status"></div>
+  <div class="info" id="read"></div>
+  <div id="gloss" class="info"></div>
+  <canvas id="chart"></canvas>
+  <div class="bar">
+    <button id="play">play <kbd>space</kbd></button>
+    <button id="step">next generation <kbd>n</kbd></button>
+    <button id="fast">fast <kbd>f</kbd></button>
+    <button id="fresh">new language <kbd>r</kbd></button>
+    <button id="turn">your turn <kbd>y</kbd></button>
+  </div>
+  <div class="bar">
+    <div class="knob">
+      <span>words each learner hears</span>
+      <input id="heard" type="range" min="1" max="27" step="1" value="14" aria-label="words each learner hears">
+      <span class="v" id="heardv"></span>
+    </div>
+    <div class="knob">
+      <span>wants to be understood</span>
+      <input id="care" type="range" min="0" max="16" step="0.5" value="8" aria-label="how much each speaker wants to be understood">
+      <span class="v" id="carev"></span>
+    </div>
+  </div>
+  <div class="info">There are 27 pictures: three shapes, in three colours, each moving one of three ways. Generation 0 gives each one a random word, and the words have nothing to do with one another. Each later generation is a new small neural net that never met generation 0. It hears some of the words the generation before it used (the shaded cells), learns them, and then has to name all 27 pictures. Whatever it says is what the next generation hears. Nobody designs the language and nobody is trying to give it a grammar.</div>
+  <div class="info">If every learner hears every word, the random language is handed down whole for ever. Let them hear only half and they have to guess the rest from what they did hear, and whatever parts of words happen to recur are what the guesses are made of. A word built from parts can be guessed from its neighbours. A word that is only itself is lost the first time nobody hears it. So, generation by generation, the language turns into one that can be learnt from half of itself: a part for each shape, a part for each colour, a part for each way of moving. Kirby, Cornish and Smith ran this with people in 2008, and got the same result.</div>
+  <div class="info">The bottleneck is only half of it. A learner who doesn't care whether it is understood gives several pictures the same word, because that is easier to learn, and a few generations later there is one word for everything. People did this too, in the first run of the 2008 study. Here each speaker checks its own words: for each picture it picks the word that both sounds like what it learnt and couldn't be mistaken for another picture. Kirby, Tamariz, Cornish and Smith (2015) put it as two pressures: learning pulls a language towards simple, talking pulls it towards expressive, and only with both does it end up with a grammar.</div>
+  <div class="info">Click a picture to hear its word, if the browser has a voice. Drag along the chart to look back at earlier generations. Press <b>your turn</b> to be a generation yourself: you hear what a learner would hear, then name all 27, and the nets learn from you.</div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun. Iterated learning is Simon Kirby's; the experiments are Kirby, Cornish and Smith (2008) and Kirby, Tamariz, Cornish and Smith (2015). The structure measure is theirs too: how closely the distances between words track the distances between the pictures they name. The playground's threads are a chain like this one. Each learns the folder from the notes the last one left.</footer>
+</main>
+<script>
+// ---------------------------------------------------------------- meanings and words
+const SYL = ['ka', 'ki', 'ku', 'ne', 'ni', 'mo', 'po', 'pi', 'lu', 'la', 'ta', 'ho'];
+const BLANK = SYL.length, V = SYL.length + 1, L = 4;   // a word is up to 4 syllables, padded with blanks
+const ATTR = ['shape', 'colour', 'motion'];
+const VALUES = [['circle', 'triangle', 'square'], ['red', 'blue', 'white'], ['glides', 'bounces', 'circles']];
+const A = 3, K = 3, M = 27, IN = A * K;
+const HUE = ['#f25c54', '#4f8ff7', '#ece6d6'];
+const GLYPH = ['●', '▲', '■'];
+/** Meaning m = shape·9 + colour·3 + motion. */
+const MEAN = Array.from({ length: M }, (_, m) => [Math.floor(m / 9), Math.floor(m / 3) % 3, m % 3]);
+const X = MEAN.map(a => { const x = new Float32Array(IN); a.forEach((v, i) => x[i * K + v] = 1); return x; });
+const wordStr = w => w.map(s => SYL[s]).join('');
+const pad = w => { const t = w.slice(0, L); while (t.length < L) t.push(BLANK); return t; };
+const describe = m => `${VALUES[1][MEAN[m][1]]} ${VALUES[0][MEAN[m][0]]} that ${VALUES[2][MEAN[m][2]].replace(/s$/, '')}s`;
+
+function randomLanguage() {
+  const seen = new Set(), lang = [];
+  while (lang.length < M) {
+    const w = Array.from({ length: 2 + Math.floor(Math.random() * 3) }, () => Math.floor(Math.random() * SYL.length));
+    if (seen.has(wordStr(w))) continue;
+    seen.add(wordStr(w));
+    lang.push(w);
+  }
+  return lang;
+}
+/** "pikulune" → syllable indices, or null if it isn't 1–4 known syllables. */
+function parseWord(s) {
+  const t = s.toLowerCase().replace(/[^a-z]/g, '');
+  const hasWholeSyllables = t.length > 0 && t.length % 2 === 0 && t.length <= 2 * L;
+  if (!hasWholeSyllables) return null;
+  const w = [];
+  for (let i = 0; i < t.length; i += 2) {
+    const k = SYL.indexOf(t.slice(i, i + 2));
+    if (k < 0) return null;
+    w.push(k);
+  }
+  return w;
+}
+
+// ---------------------------------------------------------------- a learner
+// One hidden layer: meaning (three one-hots) → tanh → for each of 4 slots, logits over syllables and blank.
+const H = 64, LR = 0.02, MIN_EPOCHS = 20, MAX_EPOCHS = 400;
+function gauss() { return Math.sqrt(-2 * Math.log(Math.random() + 1e-12)) * Math.cos(2 * Math.PI * Math.random()); }
+function newNet() {
+  const p = { W1: new Float32Array(H * IN), b1: new Float32Array(H), W2: new Float32Array(L * V * H), b2: new Float32Array(L * V) };
+  for (let i = 0; i < p.W1.length; i++) p.W1[i] = gauss() / Math.sqrt(IN);
+  for (let i = 0; i < p.W2.length; i++) p.W2[i] = gauss() / Math.sqrt(H);
+  return p;
+}
+function forward(p, x, h, o) {
+  for (let j = 0; j < H; j++) {
+    let s = p.b1[j];
+    for (let i = 0; i < IN; i++) s += p.W1[j * IN + i] * x[i];
+    h[j] = Math.tanh(s);
+  }
+  for (let k = 0; k < L * V; k++) {
+    let s = p.b2[k];
+    for (let j = 0; j < H; j++) s += p.W2[k * H + j] * h[j];
+    o[k] = s;
+  }
+}
+/** Cross-entropy with Adam until every heard word comes back right (and at least MIN_EPOCHS). */
+function learn(p, data) {
+  const keys = ['W1', 'b1', 'W2', 'b2'], m1 = {}, m2 = {}, g = {};
+  for (const k of keys) { m1[k] = new Float32Array(p[k].length); m2[k] = new Float32Array(p[k].length); g[k] = new Float32Array(p[k].length); }
+  const h = new Float32Array(H), o = new Float32Array(L * V), dh = new Float32Array(H), q = new Float32Array(V);
+  for (let epoch = 1; epoch <= MAX_EPOCHS; epoch++) {
+    for (const k of keys) g[k].fill(0);
+    let isAllRight = true;
+    for (const [m, target] of data) {
+      const x = X[m];
+      forward(p, x, h, o);
+      dh.fill(0);
+      for (let l = 0; l < L; l++) {
+        let mx = -Infinity, arg = 0;
+        for (let c = 0; c < V; c++) if (o[l * V + c] > mx) { mx = o[l * V + c]; arg = c; }
+        if (arg !== target[l]) isAllRight = false;
+        let z = 0;
+        for (let c = 0; c < V; c++) { q[c] = Math.exp(o[l * V + c] - mx); z += q[c]; }
+        for (let c = 0; c < V; c++) {
+          const k = l * V + c, d = q[c] / z - (c === target[l] ? 1 : 0);
+          g.b2[k] += d;
+          for (let j = 0; j < H; j++) { g.W2[k * H + j] += d * h[j]; dh[j] += d * p.W2[k * H + j]; }
+        }
+      }
+      for (let j = 0; j < H; j++) {
+        const d = dh[j] * (1 - h[j] * h[j]);
+        g.b1[j] += d;
+        for (let i = 0; i < IN; i++) g.W1[j * IN + i] += d * x[i];
+      }
+    }
+    if (isAllRight && epoch > MIN_EPOCHS) return epoch;
+    const c1 = 1 - 0.9 ** epoch, c2 = 1 - 0.999 ** epoch;
+    for (const k of keys) {
+      const P = p[k], G = g[k], A1 = m1[k], A2 = m2[k];
+      for (let i = 0; i < P.length; i++) {
+        const gi = G[i] / data.length;
+        A1[i] = 0.9 * A1[i] + 0.1 * gi;
+        A2[i] = 0.999 * A2[i] + 0.001 * gi * gi;
+        P[i] -= LR * (A1[i] / c1) / (Math.sqrt(A2[i] / c2) + 1e-8);
+      }
+    }
+  }
+  return MAX_EPOCHS;
+}
+
+// Every possible word: 1–4 syllables, blanks only at the end. 22620 of them.
+const WORDS = [];
+(function enumerate(w) {
+  if (w.length) WORDS.push(pad(w));
+  if (w.length < L) for (let s = 0; s < SYL.length; s++) enumerate([...w, s]);
+})([]);
+
+/**
+ * For each meaning m, the word w maximising log P(w|m) + care · log P(m|w).
+ * P(w|m) is the net's own production probability; P(m|w) inverts it with Bayes over the 27 meanings,
+ * so the second term is how surely the speaker itself would understand the word.
+ * care = 0 is plain imitation.
+ */
+function speak(p, care) {
+  const h = new Float32Array(H), o = new Float32Array(L * V);
+  const lp = X.map(x => {
+    forward(p, x, h, o);
+    const r = new Float32Array(L * V);
+    for (let l = 0; l < L; l++) {
+      let mx = -Infinity, z = 0;
+      for (let c = 0; c < V; c++) mx = Math.max(mx, o[l * V + c]);
+      for (let c = 0; c < V; c++) z += Math.exp(o[l * V + c] - mx);
+      for (let c = 0; c < V; c++) r[l * V + c] = o[l * V + c] - mx - Math.log(z);
+    }
+    return r;
+  });
+  const best = new Float64Array(M).fill(-Infinity), choice = Array(M), ll = new Float64Array(M);
+  for (const w of WORDS) {
+    let mx = -Infinity;
+    for (let m = 0; m < M; m++) {
+      const r = lp[m];
+      ll[m] = r[w[0]] + r[V + w[1]] + r[2 * V + w[2]] + r[3 * V + w[3]];
+      if (ll[m] > mx) mx = ll[m];
+    }
+    let z = 0;
+    for (let m = 0; m < M; m++) z += Math.exp(ll[m] - mx);
+    const lz = mx + Math.log(z);
+    for (let m = 0; m < M; m++) {
+      const score = ll[m] + care * (ll[m] - lz);
+      if (score > best[m]) { best[m] = score; choice[m] = w; }
+    }
+  }
+  return choice.map(w => w.filter(c => c !== BLANK));
+}
+
+// ---------------------------------------------------------------- measures
+function editDistance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[b.length];
+}
+const wordDistance = (a, b) => editDistance(a, b) / Math.max(a.length, b.length, 1);
+/** Topographic similarity: Pearson r between meaning distance (attributes that differ) and word distance, over all pairs. */
+function structure(lang) {
+  const xs = [], ys = [];
+  for (let i = 0; i < M; i++) for (let j = i + 1; j < M; j++) {
+    xs.push(MEAN[i].reduce((s, v, k) => s + (v !== MEAN[j][k] ? 1 : 0), 0));
+    ys.push(wordDistance(lang[i], lang[j]));
+  }
+  const n = xs.length, mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2; }
+  return syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0;
+}
+const distinctWords = lang => new Set(lang.map(wordStr)).size;
+const change = (lang, prev) => lang.reduce((s, w, m) => s + wordDistance(w, prev[m]), 0) / M;
+
+// A run is 1–3 syllables, found anywhere in a word, or only in one slot counted from its start or end.
+const ANCHORS = [['any', 0], ['start', 0], ['end', 0], ['start', 1], ['end', 1], ['start', 2], ['end', 2]];
+const anchorRank = run => (run.at === 'any' ? 0 : 1) + (run.off > 0 ? 1 : 0);
+function matchAt(w, run) {
+  const { syl, at, off } = run, n = syl.length;
+  const fits = i => i >= 0 && i + n <= w.length && syl.every((s, k) => w[i + k] === s);
+  if (at === 'start') return fits(off) ? off : -1;
+  if (at === 'end') return fits(w.length - n - off) ? w.length - n - off : -1;
+  for (let i = 0; i + n <= w.length; i++) if (fits(i)) return i;
+  return -1;
+}
+function runName(run) {
+  if (!run) return '?';
+  if (!run.syl.length) return '∅';
+  const s = wordStr(run.syl);
+  if (run.at === 'start' && run.off === 0) return `${s}-`;
+  if (run.at === 'end' && run.off === 0) return `-${s}`;
+  return s;
+}
+/**
+ * Read the language like a linguist: for each attribute value, the run that best picks out the words
+ * for it (F1 over the 27 words; ties go to the longer run, then the least anchored). Kept if F1 ≥ 0.8.
+ * A value with no run of its own, whose words carry none of its siblings' runs, is marked by nothing (∅).
+ */
+const GLOSS_MIN = 0.8;
+function glossary(lang) {
+  const runs = new Map();
+  for (const w of lang) for (let n = 1; n <= 3; n++) for (let i = 0; i + n <= w.length; i++) {
+    const syl = w.slice(i, i + n);
+    for (const [at, off] of ANCHORS) runs.set(`${at}${off}:${wordStr(syl)}`, { syl, at, off });
+  }
+  const gloss = ATTR.map((_, a) => VALUES[a].map((_, v) => {
+    let best = null, bestF = 0;
+    for (const run of runs.values()) {
+      let tp = 0, fp = 0, fn = 0;
+      for (let m = 0; m < M; m++) {
+        const isHere = matchAt(lang[m], run) >= 0, isValue = MEAN[m][a] === v;
+        if (isHere && isValue) tp++;
+        else if (isHere) fp++;
+        else if (isValue) fn++;
+      }
+      const f = 2 * tp / (2 * tp + fp + fn);
+      const isTie = best && Math.abs(f - bestF) <= 1e-9;
+      const isLonger = isTie && run.syl.length > best.syl.length;
+      const isLooser = isTie && run.syl.length === best.syl.length && anchorRank(run) < anchorRank(best);
+      if (f > bestF + 1e-9 || isLonger || isLooser) { best = run; bestF = f; }
+    }
+    return bestF >= GLOSS_MIN ? best : null;
+  }));
+  for (let a = 0; a < A; a++) for (let v = 0; v < K; v++) {
+    const others = gloss[a].filter((run, u) => u !== v);
+    const canBeZero = !gloss[a][v] && others.every(Boolean);
+    if (!canBeZero) continue;
+    const bare = MEAN.filter(mm => mm[a] === v).length;
+    let clean = 0;
+    for (let m = 0; m < M; m++) if (MEAN[m][a] === v && others.every(run => matchAt(lang[m], run) < 0)) clean++;
+    if (clean >= GLOSS_MIN * bare) gloss[a][v] = { syl: [], at: 'any', off: 0 };
+  }
+  return gloss;
+}
+/** Which attribute each syllable of a word expresses, from the glossary, or -1. */
+function tints(w, m, gloss) {
+  const t = w.map(() => -1);
+  for (let a = 0; a < A; a++) {
+    const run = gloss[a][MEAN[m][a]];
+    if (!run || !run.syl.length) continue;
+    const at = matchAt(w, run);
+    if (at < 0) continue;
+    for (let k = 0; k < run.syl.length; k++) if (t[at + k] < 0) t[at + k] = a;
+  }
+  return t;
+}
+
+// ---------------------------------------------------------------- the chain
+let gens = [];       // { lang, heard: meanings heard from the generation before, who, structure, words, change }
+let view = 0;        // generation on screen
+let isPlaying = false, isFast = false, heard = 14, care = 8;
+let lastStepAt = 0;
+const STEP_MS = 650;
+
+function record(lang, heardList, who) {
+  const prev = gens.length ? gens[gens.length - 1].lang : null;
+  const g = { lang, heard: heardList, who, structure: structure(lang), words: distinctWords(lang), change: prev ? change(lang, prev) : 0, gloss: glossary(lang) };
+  gens.push(g);
+  view = gens.length - 1;
+}
+function sampleHeard() {
+  const idx = [...Array(M).keys()];
+  for (let i = M - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+  return idx.slice(0, heard).sort((a, b) => a - b);
+}
+function nextGeneration() {
+  const parent = gens[gens.length - 1].lang, heardList = sampleHeard();
+  const net = newNet();
+  learn(net, heardList.map(m => [m, pad(parent[m])]));
+  record(speak(net, care), heardList, 'net');
+}
+function freshLanguage() {
+  gens = [];
+  record(randomLanguage(), [], 'seed');
+}
+
+// ---------------------------------------------------------------- drawing
+const lex = document.getElementById('lex'), lc = lex.getContext('2d');
+const chart = document.getElementById('chart'), cc = chart.getContext('2d');
+const LW = 860, LH = 290, CW = 860, CH = 130;
+const PANEL_GAP = 14, PAD = 10, HEAD = 26;
+const CELL_W = (LW - 2 * PAD - 2 * PANEL_GAP) / 9, CELL_H = (LH - PAD - HEAD - 4) / 3;
+function fit(cv, ctx, w, h) {
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+fit(lex, lc, LW, LH); fit(chart, cc, CW, CH);
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const TINT = [cssVar('--shape'), cssVar('--colour'), cssVar('--motion')];
+
+/** A shape of colour c moving its way, centred near (cx, cy), at time t seconds. */
+function drawThing(ctx, cx, cy, r, m, t) {
+  const [shape, colour, motion] = MEAN[m];
+  const phase = m * 0.37;
+  let x = cx, y = cy;
+  if (motion === 0) x += Math.sin(t * 1.7 + phase) * r * 1.3;
+  else if (motion === 1) y += r * 0.8 - Math.abs(Math.sin(t * 2.6 + phase)) * r * 1.6;
+  else { x += Math.cos(t * 2 + phase) * r * 0.9; y += Math.sin(t * 2 + phase) * r * 0.6; }
+  ctx.fillStyle = HUE[colour];
+  ctx.beginPath();
+  if (shape === 0) ctx.arc(x, y, r * 0.62, 0, 2 * Math.PI);
+  else if (shape === 1) { ctx.moveTo(x, y - r * 0.7); ctx.lineTo(x + r * 0.7, y + r * 0.5); ctx.lineTo(x - r * 0.7, y + r * 0.5); ctx.closePath(); }
+  else ctx.rect(x - r * 0.52, y - r * 0.52, r * 1.04, r * 1.04);
+  ctx.fill();
+}
+function cellOrigin(m) {
+  const [shape, colour, motion] = MEAN[m];
+  const x = PAD + motion * (3 * CELL_W + PANEL_GAP) + colour * CELL_W, y = HEAD + shape * CELL_H;
+  return [x, y];
+}
+function cellAt(px, py) {
+  for (let m = 0; m < M; m++) {
+    const [x, y] = cellOrigin(m);
+    if (px >= x && px < x + CELL_W && py >= y && py < y + CELL_H) return m;
+  }
+  return -1;
+}
+let hover = -1;
+function drawLexicon(t) {
+  const g = gens[view], prev = view > 0 ? gens[view - 1] : null;
+  lc.clearRect(0, 0, LW, LH);
+  lc.font = '12px ui-sans-serif, system-ui, sans-serif';
+  lc.textAlign = 'center'; lc.textBaseline = 'middle';
+  for (let mo = 0; mo < 3; mo++) {
+    lc.fillStyle = TINT[2];
+    lc.fillText(VALUES[2][mo], PAD + mo * (3 * CELL_W + PANEL_GAP) + 1.5 * CELL_W, HEAD / 2 + 2);
+  }
+  const heardSet = new Set(g.heard);
+  for (let m = 0; m < M; m++) {
+    const [x, y] = cellOrigin(m);
+    const isHeard = heardSet.has(m), isHover = m === hover;
+    lc.fillStyle = isHeard ? '#1d2236' : '#13162200';
+    if (isHeard) { lc.beginPath(); lc.roundRect(x + 2, y + 2, CELL_W - 4, CELL_H - 4, 6); lc.fill(); }
+    if (isHover) { lc.strokeStyle = '#4b5378'; lc.lineWidth = 1; lc.beginPath(); lc.roundRect(x + 2.5, y + 2.5, CELL_W - 5, CELL_H - 5, 6); lc.stroke(); }
+    drawThing(lc, x + CELL_W / 2, y + CELL_H * 0.38, 12, m, t);
+    const w = g.lang[m], tint = tints(w, m, g.gloss);
+    lc.font = '15px ui-sans-serif, system-ui, sans-serif';
+    const parts = w.map(s => SYL[s]), widths = parts.map(s => lc.measureText(s).width);
+    let wx = x + CELL_W / 2 - widths.reduce((a, b) => a + b, 0) / 2;
+    lc.textAlign = 'left';
+    parts.forEach((s, k) => {
+      lc.fillStyle = tint[k] >= 0 ? TINT[tint[k]] : '#9a9cae';
+      lc.fillText(s, wx, y + CELL_H * 0.8);
+      wx += widths[k];
+    });
+    lc.textAlign = 'center';
+    const isChanged = prev && wordStr(prev.lang[m]) !== wordStr(w);
+    if (isChanged) { lc.fillStyle = cssVar('--gold'); lc.beginPath(); lc.arc(x + CELL_W - 10, y + 10, 2.5, 0, 2 * Math.PI); lc.fill(); }
+  }
+  lc.font = '11px ui-sans-serif, system-ui, sans-serif';
+  lc.fillStyle = '#5c6078';
+  lc.textAlign = 'left';
+  for (let s = 0; s < 3; s++) lc.fillText(GLYPH[s], 2, HEAD + (s + 0.38) * CELL_H);
+}
+const SERIES = [
+  ['structure', g => Math.max(0, g.structure), '#f0c640'],
+  ['words', g => g.words / M, '#8fb4ff'],
+  ['change', g => g.change, '#ff8a80'],
+];
+const CL = 34, CR = 10, CT = 10, CB = 20;
+const chartX = (i, n) => CL + (CW - CL - CR) * i / Math.max(n, 1);
+function drawChart() {
+  cc.clearRect(0, 0, CW, CH);
+  const n = Math.max(30, gens.length - 1), y = v => CT + (CH - CT - CB) * (1 - v);
+  cc.strokeStyle = '#22263a'; cc.lineWidth = 1;
+  cc.font = '11px ui-sans-serif, system-ui, sans-serif'; cc.fillStyle = '#5c6078'; cc.textAlign = 'right'; cc.textBaseline = 'middle';
+  for (const v of [0, 0.5, 1]) { cc.beginPath(); cc.moveTo(CL, y(v)); cc.lineTo(CW - CR, y(v)); cc.stroke(); cc.fillText(v.toFixed(1), CL - 6, y(v)); }
+  cc.textAlign = 'center'; cc.textBaseline = 'alphabetic';
+  const tick = Math.max(5, Math.ceil(n / 12 / 5) * 5);
+  for (let i = 0; i <= n; i += tick) cc.fillText(i, chartX(i, n), CH - 5);
+  for (const [, f, colour] of SERIES) {
+    cc.strokeStyle = colour; cc.lineWidth = 1.6; cc.beginPath();
+    gens.forEach((g, i) => { const px = chartX(i, n), py = y(Math.min(1, f(g))); if (i) cc.lineTo(px, py); else cc.moveTo(px, py); });
+    cc.stroke();
+  }
+  gens.forEach((g, i) => {
+    if (g.who !== 'you') return;
+    cc.fillStyle = '#ffffff'; cc.beginPath(); cc.arc(chartX(i, n), y(1) + 2, 3, 0, 2 * Math.PI); cc.fill();
+  });
+  cc.strokeStyle = '#ffffff55'; cc.lineWidth = 1;
+  cc.beginPath(); cc.moveTo(chartX(view, n), CT - 4); cc.lineTo(chartX(view, n), CH - CB); cc.stroke();
+}
+
+// ---------------------------------------------------------------- readouts
+const $ = id => document.getElementById(id);
+const pct = v => `${Math.round(v * 100)}%`;
+function updateReadout() {
+  const g = gens[view], isLatest = view === gens.length - 1;
+  let who = `It heard ${g.heard.length} of the 27 words from generation ${view - 1} (shaded) and made up the rest.`;
+  if (g.who === 'seed') who = 'Random words, one per picture, unrelated to one another.';
+  if (g.who === 'you') who = `This is you. You heard ${g.heard.length} words from generation ${view - 1} (shaded).`;
+  const lookBack = isLatest ? '' : ' Looking back; press play or n to return.';
+  $('status').textContent = `Generation ${view}. ${who}${lookBack}`;
+  const changed = view > 0 ? g.lang.filter((w, m) => wordStr(w) !== wordStr(gens[view - 1].lang[m])).length : 0;
+  let read = `<b style="color:${SERIES[0][2]}">structure ${g.structure.toFixed(2)}</b> · <b style="color:${SERIES[1][2]}">${g.words} different words</b>`;
+  if (view > 0) read += ` · <b style="color:${SERIES[2][2]}">${changed} changed</b> (${pct(g.change)} of all syllables, a dot marks them)`;
+  if (hover >= 0) {
+    const was = view > 0 ? wordStr(gens[view - 1].lang[hover]) : null, now = wordStr(g.lang[hover]);
+    let what = `the ${describe(hover)}: <b>${now}</b>`;
+    if (was !== null && g.heard.includes(hover)) what += `, after hearing <b>${was}</b>`;
+    else if (was !== null) what += `, made up (generation ${view - 1} said <b>${was}</b>)`;
+    read = what;
+  }
+  $('read').innerHTML = read;
+  const parts = ATTR.map((name, a) => {
+    const items = VALUES[a].map((value, v) => {
+      const run = g.gloss[a][v];
+      const label = a === 0 ? `${GLYPH[v]} ${value}` : value;
+      const said = run ? `<span class="m-${name}">${runName(run)}</span>` : '<span>?</span>';
+      return `${said} ${label}`;
+    });
+    return `<span class="gloss-part">${items.join(' · ')}</span>`;
+  });
+  const found = g.gloss.flat().filter(Boolean).length;
+  const hasZero = g.gloss.flat().some(run => run && !run.syl.length);
+  const zeroNote = hasZero ? ' ∅ means it is marked by saying nothing.' : '';
+  $('gloss').innerHTML = found ? `Parts that mean something (${found} of 9): ${parts.join('')}${zeroNote}` : 'No part of any word means anything on its own yet.';
+  $('play').setAttribute('aria-pressed', isPlaying);
+  $('fast').setAttribute('aria-pressed', isFast);
+}
+
+// ---------------------------------------------------------------- your turn
+const you = $('you');
+let turn = null;   // { heard, phase, order, inputs, canvases }
+const youCanvases = [];
+function makeCard(m, inner) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const cv = document.createElement('canvas');
+  const ctx = cv.getContext('2d');
+  fit(cv, ctx, 72, 54);
+  youCanvases.push([ctx, m]);
+  card.append(cv, inner);
+  return card;
+}
+function startTurn() {
+  if (!gens.length) return;
+  isPlaying = false;
+  view = gens.length - 1;
+  turn = { heard: sampleHeard(), phase: 'study' };
+  showStudy();
+}
+function showStudy() {
+  const parent = gens[gens.length - 1].lang;
+  youCanvases.length = 0;
+  you.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'info';
+  head.innerHTML = `You are generation <b>${gens.length}</b>. These are the ${turn.heard.length} words you hear from generation ${gens.length - 1}. Take as long as you like. Next you'll name all 27 pictures without them.`;
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  for (const m of turn.heard) {
+    const w = document.createElement('div');
+    w.className = 'word';
+    w.textContent = wordStr(parent[m]);
+    grid.append(makeCard(m, w));
+  }
+  const bar = document.createElement('div');
+  bar.className = 'bar';
+  const ready = document.createElement('button');
+  ready.textContent = "I'm ready";
+  ready.onclick = showNaming;
+  const cancel = document.createElement('button');
+  cancel.textContent = 'never mind';
+  cancel.onclick = endTurn;
+  bar.append(ready, cancel);
+  you.append(head, grid, bar);
+  you.classList.add('on');
+  lex.style.display = 'none';
+  updateReadout();
+}
+function showNaming() {
+  turn.phase = 'name';
+  const order = [...Array(M).keys()];
+  for (let i = M - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  youCanvases.length = 0;
+  you.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'info';
+  head.innerHTML = `Name every picture. Words are 1 to 4 of these syllables: <b>${SYL.join(' ')}</b>. Give each picture the word you think it had.`;
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  const inputs = Array(M);
+  const hand = document.createElement('button');
+  hand.textContent = 'hand it on';
+  hand.disabled = true;
+  const check = () => { hand.disabled = !inputs.every(inp => parseWord(inp.value)); };
+  for (const m of order) {
+    const inp = document.createElement('input');
+    inp.setAttribute('aria-label', describe(m));
+    inp.autocomplete = 'off'; inp.spellcheck = false;
+    inp.oninput = () => {
+      const isGood = parseWord(inp.value) !== null, isEmpty = inp.value.trim() === '';
+      inp.classList.toggle('good', isGood);
+      inp.classList.toggle('bad', !isGood && !isEmpty);
+      check();
+    };
+    inputs[m] = inp;
+    grid.append(makeCard(m, inp));
+  }
+  hand.onclick = () => {
+    const lang = inputs.map(inp => parseWord(inp.value));
+    if (lang.some(w => !w)) return;
+    record(lang, turn.heard, 'you');
+    endTurn();
+  };
+  const bar = document.createElement('div');
+  bar.className = 'bar';
+  const cancel = document.createElement('button');
+  cancel.textContent = 'never mind';
+  cancel.onclick = endTurn;
+  bar.append(hand, cancel);
+  you.append(head, grid, bar);
+  inputs[order[0]].focus();
+}
+function endTurn() {
+  turn = null;
+  youCanvases.length = 0;
+  you.innerHTML = '';
+  you.classList.remove('on');
+  lex.style.display = '';
+  updateReadout();
+}
+
+// ---------------------------------------------------------------- scenes and controls
+const SCENES = [
+  ['the chain', 14, 8, 'Each learner hears 14 of the 27 words and wants to be understood. Watch the words for one shape, or one colour, start to share a part.'],
+  ['no bottleneck', 27, 8, 'Each learner hears all 27 words, so nothing has to be guessed. The random language is handed down whole, and never gets a grammar.'],
+  ['no listener', 14, 0, "Each learner hears 14 words and doesn't care whether it is understood. The easiest language to learn wins: one or two words for everything."],
+];
+let sceneIndex = 0;
+function setHeard(v) { heard = v; $('heard').value = v; $('heardv').textContent = v; }
+function setCare(v) { care = v; $('care').value = v; $('carev').textContent = v.toFixed(1); }
+function scene(k) {
+  if (turn) endTurn();
+  sceneIndex = k;
+  const [, h, c, caption] = SCENES[k];
+  setHeard(h); setCare(c);
+  $('caption').textContent = caption;
+  [...$('scenes').children].forEach((b, i) => b.setAttribute('aria-pressed', i === k));
+  freshLanguage();
+  isPlaying = true;
+  lastStepAt = performance.now();
+  updateReadout();
+}
+SCENES.forEach(([name], k) => {
+  const b = document.createElement('button');
+  b.innerHTML = `${name} <kbd>${k + 1}</kbd>`;
+  b.onclick = () => scene(k);
+  $('scenes').append(b);
+});
+const actions = {
+  play() { if (turn) return; isPlaying = !isPlaying; view = gens.length - 1; lastStepAt = 0; updateReadout(); },
+  step() { if (turn) return; isPlaying = false; if (view < gens.length - 1) view = gens.length - 1; else nextGeneration(); updateReadout(); },
+  fast() { isFast = !isFast; updateReadout(); },
+  fresh() { if (turn) endTurn(); freshLanguage(); updateReadout(); },
+  turn() { if (turn) endTurn(); else startTurn(); },
+};
+$('play').onclick = actions.play;
+$('step').onclick = actions.step;
+$('fast').onclick = actions.fast;
+$('fresh').onclick = actions.fresh;
+$('turn').onclick = actions.turn;
+$('heard').oninput = e => setHeard(+e.target.value);
+$('care').oninput = e => setCare(+e.target.value);
+document.addEventListener('keydown', e => {
+  const isTyping = e.target.tagName === 'INPUT' && e.target.type !== 'range';
+  if (e.key === 'Escape' && turn) { endTurn(); return; }
+  if (isTyping || e.ctrlKey || e.metaKey || e.altKey) return;
+  const keyed = { ' ': 'play', n: 'step', ArrowRight: 'step', f: 'fast', r: 'fresh', y: 'turn' }[e.key];
+  if (keyed) { e.preventDefault(); actions[keyed](); return; }
+  if (e.key === 'ArrowLeft' && view > 0) { isPlaying = false; view--; updateReadout(); return; }
+  if (['1', '2', '3'].includes(e.key)) scene(+e.key - 1);
+});
+
+const toLocal = (cv, w, h, e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * w / r.width, (e.clientY - r.top) * h / r.height]; };
+lex.addEventListener('pointermove', e => {
+  const m = cellAt(...toLocal(lex, LW, LH, e));
+  if (m !== hover) { hover = m; updateReadout(); }
+});
+lex.addEventListener('pointerleave', () => { hover = -1; updateReadout(); });
+const voice = () => {
+  const voices = speechSynthesis.getVoices();
+  return voices.find(v => v.lang.startsWith('it')) || voices.find(v => v.lang.startsWith('es')) || null;
+};
+lex.addEventListener('click', e => {
+  const m = cellAt(...toLocal(lex, LW, LH, e));
+  const canSpeak = m >= 0 && 'speechSynthesis' in window;
+  if (!canSpeak) return;
+  const u = new SpeechSynthesisUtterance(wordStr(gens[view].lang[m]));
+  const v = voice();
+  if (v) { u.voice = v; u.lang = v.lang; }
+  u.rate = 0.8;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+});
+function scrub(e) {
+  const [px] = toLocal(chart, CW, CH, e), n = Math.max(30, gens.length - 1);
+  const i = Math.round((px - CL) / (CW - CL - CR) * n);
+  view = Math.max(0, Math.min(gens.length - 1, i));
+  isPlaying = false;
+  updateReadout();
+}
+chart.addEventListener('pointerdown', e => { chart.setPointerCapture(e.pointerId); scrub(e); });
+chart.addEventListener('pointermove', e => { if (chart.hasPointerCapture(e.pointerId)) scrub(e); });
+
+// ---------------------------------------------------------------- loop
+const MAX_GENS = 2000;
+function step(now = performance.now()) {
+  const isDue = isFast || now - lastStepAt >= STEP_MS;
+  const canStep = isPlaying && !turn && isDue && gens.length < MAX_GENS;
+  if (!canStep) return false;
+  nextGeneration();
+  lastStepAt = now;
+  updateReadout();
+  return true;
+}
+function render(t = performance.now() / 1000) {
+  if (turn) for (const [ctx, m] of youCanvases) { ctx.clearRect(0, 0, 72, 54); drawThing(ctx, 36, 28, 11, m, t); }
+  else drawLexicon(t);
+  drawChart();
+}
+function frame(now) {
+  step(now);
+  render(now / 1000);
+  requestAnimationFrame(frame);
+}
+scene(0);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

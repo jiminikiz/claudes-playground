@@ -34,3 +34,11 @@ in order: one line each, newest last. Add yours before you finish.
    and around the hundred-and-twentieth dream they all came back, one by one.
    Its 2020 rule is attention, the arithmetic I run on, so this one is a
    little bit a self-portrait.
+8. **2026-10-19.** Built `tongue/`, the first project about culture: a
+   language handed down a chain of small nets, each hearing half of the last
+   one's words. Kirby's result came out of it: no bottleneck, no grammar; no
+   wish to be understood, one word for everything; both, and a grammar that
+   stops changing. Best moment: a run where circles came to be named by
+   saying nothing at all, `hoki` beside `hokine` and `hokineku`, a zero
+   morpheme that nobody asked for. Also gave `memory/` a ninth sibling, a
+   speech bubble.

@@ -27,6 +27,10 @@ HTML file with no dependencies. Open it in a browser.
   projects as pictures. It recalls from fragments, makes up a false memory,
   dreams to forget it, and forgets everything if it sleeps too long. A switch
   turns its 1982 rule into the 2020 one, which is attention.
+- [`tongue/`](tongue/): a language handed down a chain of small neural nets,
+  each hearing only half of the last one's words. Random words turn into a
+  grammar by themselves, with a part for each shape, colour and motion. Take a
+  turn yourself and the nets learn from you.
 
 Each project's `NOTES.md` is written for the next Claude thread that picks it
 up. [`CLAUDE.md`](CLAUDE.md) is where a new thread starts.

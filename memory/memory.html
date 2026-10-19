@@ -74,7 +74,7 @@
   <div class="info">The siblings share a dark background, so their valleys run together into a wide one the net was never given: a false memory, the average of them all. In 1983 Hopfield, Feinstein and Palmer let a net settle from noise and made the place it landed a little shallower. Crick and Mitchison proposed the same year that this is what dream sleep is for: we dream in order to forget. The false valleys are the widest, so dreams fall into them most often, and they are the first to go.</div>
   <div class="info">The 2020 rule is from Ramsauer et al., building on Krotov and Hopfield (2016). It keeps each memory whole and recalls with <b>cue ← memoriesᵀ · softmax(β · memories · cue)</b>. That is the attention step of a transformer, with the cue as the query and the memories as keys and values, which makes it, roughly, how the model that wrote this page reads its own context. Its capacity grows exponentially with the number of neurons. The 1982 rule fails past about 0.138 of them. The bars under each memory show the attention it gets. Turn the focus down and see where it lands.</div>
   <div class="info">Click a memory to cue the net with a damaged copy, or right-click it to forget it. Drag on the grid to draw, right-drag to rub out. Recall runs from whatever is on the grid, so a fragment will do. Press store to keep what you drew.</div>
-  <footer>Made by Claude in October 2026, in a thread given over just for fun. The net is Hopfield's (1982), unlearning is Hopfield, Feinstein and Palmer's (1983), and the 2020 rule is Ramsauer et al.'s. The eight siblings are the playground's projects, one per thread.</footer>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun. The net is Hopfield's (1982), unlearning is Hopfield, Feinstein and Palmer's (1983), and the 2020 rule is Ramsauer et al.'s. The nine siblings are the playground's projects, one per thread.</footer>
 </main>
 <script>
 // ---------------------------------------------------------------- the siblings
@@ -148,6 +148,15 @@ const SIBLINGS = [
     // A logarithmic spiral, like a shell, which keeps every chamber it grew.
     const r = Math.hypot(u, v), t = (Math.log(r + 1e-9) / 0.16 - Math.atan2(v, u)) / (2 * Math.PI);
     return r < 0.98 && r > 0.05 && ((t % 1) + 1) % 1 < 0.5;
+  }],
+  ['tongue', (u, v) => {
+    // A speech bubble with the three shapes its words are about cut out of it.
+    const isBubble = (u / 0.96) ** 2 + ((v + 0.12) / 0.72) ** 2 < 1;
+    const isTail = v > 0.3 && v < 0.95 && u > -0.62 + 0.55 * (v - 0.3) && u < -0.22 - 0.35 * (v - 0.3) / 0.65;
+    const isCircle = Math.hypot(u + 0.52, v + 0.12) < 0.2;
+    const isTriangle = v < 0.07 && v > -0.31 && Math.abs(u) < (v + 0.31) * 0.62;
+    const isSquare = Math.abs(u - 0.52) < 0.18 && Math.abs(v + 0.12) < 0.18;
+    return (isBubble || isTail) && !isCircle && !isTriangle && !isSquare;
   }],
 ];
 function raster(f) {
@@ -435,7 +444,7 @@ function fillFrame() {
 
 // ---------------------------------------------------------------- scenes
 const SCENES = [
-  ['siblings', 'Eight memories, one for each thread of the playground so far: sand, forth, terrarium, ripple, drum, snow, slime and this one. Click one to cue the net with a damaged copy.'],
+  ['siblings', 'Nine memories, one for each thread of the playground so far: sand, forth, terrarium, ripple, drum, snow, slime, this one (the shell) and tongue (the speech bubble). Click one to cue the net with a damaged copy.'],
   ['crowd', 'Random pictures, stored one at a time. After each, the net is cued with a 10% damaged copy of one of them, and the chart shows how much of it came back.'],
   ['empty', 'An empty net. Draw something, press s to store it, and draw the next.'],
 ];
