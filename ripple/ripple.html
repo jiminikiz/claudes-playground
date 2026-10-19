@@ -20,7 +20,7 @@
     display: flex; justify-content: center; padding: 16px;
   }
   main { width: min(100%, calc((100vh - 190px) * 3 / 2)); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-  .stage { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #02050b; }
+  .stage { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #050a12; }
   #c { display: block; width: 100%; height: auto; }
   #o { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: none; }
   .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -55,6 +55,7 @@
     </div>
     <span class="spacer"></span>
     <label class="knob">wavelength <input id="lambda" type="range" min="6" max="40" step="1"> <b id="lambdaOut"></b></label>
+    <button id="light"><span class="sw" id="lightSw"></span><span id="lightName">white</span> <kbd>l</kbd></button>
     <button id="view">waves <kbd>v</kbd></button>
     <button id="edges">open edges <kbd>e</kbd></button>
     <button id="pause">pause <kbd>space</kbd></button>
@@ -62,7 +63,7 @@
     <button id="calm">calm <kbd>x</kbd></button>
     <button id="clear">clear <kbd>c</kbd></button>
   </div>
-  <div class="info">click to drop a pebble · drag a source or wave bar to move it · right-click removes it, or erases · scroll or [ ] for brush size · - = for wavelength</div>
+  <div class="info">click to drop a pebble · drag a source or wave bar to move it · right-click removes it, or erases · l sets the light of new sources, or the one you hold · scroll or [ ] for brush size · - = for wavelength</div>
   <div class="info">every effect here comes from one wave equation, solved per cell; nothing is scripted. Try outrunning a wave.</div>
   <footer>Made by Claude in October 2026, in a thread given over just for fun.</footer>
 </main>
@@ -71,31 +72,51 @@
 // outgoing waves, so open edges don't echo.
 const VW = 360, VH = 240, P = 28, W = VW + 2 * P, H = VH + 2 * P, N = W * H;
 const C = 0.5;      // wave speed in open water, cells per step; stable below 1/√2
-const SLOW = 1.6;   // shallows slow waves by this factor (their refractive index)
 const STEPS = 6;    // steps per frame
 // A closed tank with no loss at all rings up without limit when driven near a resonance.
 const EDGE_DAMP = 0.3, SPONGE_DAMP = 0.08, CLOSED_LOSS = 0.001;
 const ENERGY_AVG = 0.01, ENERGY_DECADES = 2.5;
-const SRC_AMP = 1, BAR_AMP = 0.35, DROP_AMP = -2.5, WAKE_AMP = -0.35;
+const SRC_AMP = 1, BAR_AMP = 0.35, BAR_TAPER = 14, DROP_AMP = -2.5, WAKE_AMP = -0.35;
 
 const WATER = 0, WALL = 1, SHALLOW = 2, SPONGE = 3;
 const KIND_NAMES = ['open water', 'wall', 'shallows', 'sponge'];
 
-let u = new Float32Array(N), prev = new Float32Array(N);
-const energy = new Float32Array(N);   // running average of u², the "energy" view
+// Three independent fields, one per colour. The wave equation is linear, so running
+// them apart and adding them up is exact. Wavelengths keep light's ratios
+// (650 : 530 : 450 nm). The shallows' indices spread about 15× wider than glass's,
+// so a prism visibly splits white.
+const CHANNELS = [
+  { name: 'red',   scale: 1.23, index: 1.45, rgb: [255, 55, 40] },
+  { name: 'green', scale: 1,    index: 1.6,  rgb: [60, 225, 85] },
+  { name: 'blue',  scale: 0.85, index: 1.8,  rgb: [50, 105, 255] },
+];
+const K2 = CHANNELS.map(ch => Float32Array.of(C * C, 0, (C / ch.index) ** 2, C * C)); // (c·dt/dx)² by kind
+const LIGHTS = [
+  { name: 'white', mask: 7, css: '#ffffff' },
+  { name: 'red',   mask: 1, css: '#ff6a5a' },
+  { name: 'green', mask: 2, css: '#6be88a' },
+  { name: 'blue',  mask: 4, css: '#6a9bff' },
+];
+const lightOf = mask => LIGHTS.find(l => l.mask === mask);
+
+const U = CHANNELS.map(() => new Float32Array(N));
+const PREV = CHANNELS.map(() => new Float32Array(N));
+const ENERGY = CHANNELS.map(() => new Float32Array(N)); // running average of u², the "energy" view
+// Steps left before an undriven channel goes to sleep; a sleeping channel costs nothing.
+const awake = [0, 0, 0];
 const kind = new Uint8Array(N);
 const solid = new Uint8Array(N);      // walls, plus the margin when edges are closed
-const k2 = new Float32Array(N);       // (c·dt/dx)² per cell
 const damp = new Float32Array(N);
 
 let closed = false;
 let paused = false;
 let view = 'waves';
-let lambda = 14;
-let phase = 0;
+let lambda = 12;    // green's wavelength in open water; the others scale from it
+let light = LIGHTS[0];
+const phase = [0, 0, 0];
 
-const sources = []; // {x, y, px, py, mach}: grid coords; px,py is where it was last frame
-const bars = [];    // {x0, y0, x1, y1}: a line of sources in phase, for plane waves
+const sources = []; // {x, y, px, py, mach, mask}: grid coords; px,py is where it was last frame
+const bars = [];    // {x0, y0, x1, y1, mask}: a line of sources in phase, for plane waves
 
 const isMargin = (x, y) => x < P || x >= P + VW || y < P || y >= P + VH;
 
@@ -104,7 +125,6 @@ function settle(i) {
   const inMargin = isMargin(x, y);
   const isSolid = kind[i] === WALL || (closed && inMargin);
   solid[i] = isSolid ? 1 : 0;
-  k2[i] = kind[i] === SHALLOW ? (C / SLOW) ** 2 : C * C;
   let d = 0;
   if (inMargin && !closed) {
     const depth = Math.max(P - x, x - (P + VW - 1), P - y, y - (P + VH - 1));
@@ -113,29 +133,35 @@ function settle(i) {
   if (closed) d = CLOSED_LOSS;
   if (kind[i] === SPONGE) d = Math.max(d, SPONGE_DAMP);
   damp[i] = d;
-  if (isSolid) u[i] = prev[i] = 0;
+  if (isSolid) for (let c = 0; c < 3; c++) U[c][i] = PREV[c][i] = 0;
 }
 function settleAll() { for (let i = 0; i < N; i++) settle(i); }
 
+function wake(mask) {
+  const steps = closed ? 8000 : 3000;
+  for (let c = 0; c < 3; c++) if (mask & (1 << c)) awake[c] = steps;
+}
+
 // ---- driving ----
 
-function addAt(x, y, a) {
+function addAt(f, x, y, a) {
   if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) return;
   const i = y * W + x;
-  if (!solid[i]) u[i] += a;
+  if (!solid[i]) f[i] += a;
 }
 
 // Bilinear, so a source moving between cells drives smoothly.
-function splat(x, y, a) {
+function splat(f, x, y, a) {
   const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
-  addAt(ix, iy, a * (1 - fx) * (1 - fy));
-  addAt(ix + 1, iy, a * fx * (1 - fy));
-  addAt(ix, iy + 1, a * (1 - fx) * fy);
-  addAt(ix + 1, iy + 1, a * fx * fy);
+  addAt(f, ix, iy, a * (1 - fx) * (1 - fy));
+  addAt(f, ix + 1, iy, a * fx * (1 - fy));
+  addAt(f, ix, iy + 1, a * (1 - fx) * fy);
+  addAt(f, ix + 1, iy + 1, a * fx * fy);
 }
 
-// A displacement with no velocity: the ring a pebble makes.
+// A displacement with no velocity: the ring a pebble makes. Pebbles are white.
 function pulse(x, y, a, r = 2) {
+  wake(7);
   const R = Math.ceil(r * 3);
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     const gx = Math.round(x) + dx, gy = Math.round(y) + dy;
@@ -143,37 +169,52 @@ function pulse(x, y, a, r = 2) {
     const i = gy * W + gx;
     if (solid[i]) continue;
     const g = a * Math.exp(-((gx - x) ** 2 + (gy - y) ** 2) / (r * r));
-    u[i] += g; prev[i] += g;
+    for (let c = 0; c < 3; c++) { U[c][i] += g; PREV[c][i] += g; }
   }
 }
 
-const omega = () => 2 * Math.PI * C / lambda;
+const omega = c => 2 * Math.PI * C / (lambda * CHANNELS[c].scale);
 
-// f is how far through the frame this step is, so dragged sources move between steps.
-function step(f = 1) {
-  const w = omega();
-  phase += w;
-  // Sources add the change in sin, not sin itself: a source that added sin would
-  // pump in a net push every half cycle and slowly raise the whole tank.
-  const a = Math.sin(phase) - Math.sin(phase - w);
-  for (const s of sources) splat(s.px + (s.x - s.px) * f, s.py + (s.y - s.py) * f, a * SRC_AMP);
-  for (const b of bars) {
-    const n = Math.max(1, Math.ceil(Math.hypot(b.x1 - b.x0, b.y1 - b.y0)));
-    for (let j = 0; j <= n; j++) splat(b.x0 + (b.x1 - b.x0) * j / n, b.y0 + (b.y1 - b.y0) * j / n, a * BAR_AMP);
-  }
-
-  const next = prev;
+function stepChannel(c) {
+  const cur = U[c], old = PREV[c], e = ENERGY[c], kk = K2[c];
   for (let y = 1; y < H - 1; y++) {
     let i = y * W + 1;
     for (let x = 1; x < W - 1; x++, i++) {
-      if (solid[i]) { next[i] = 0; energy[i] = 0; continue; }
-      const c = u[i], d = damp[i];
-      const v = (2 - d) * c - (1 - d) * prev[i] + k2[i] * (u[i - 1] + u[i + 1] + u[i - W] + u[i + W] - 4 * c);
-      next[i] = v;
-      energy[i] += (v * v - energy[i]) * ENERGY_AVG;
+      if (solid[i]) { old[i] = 0; e[i] = 0; continue; }
+      const v0 = cur[i], d = damp[i];
+      const v = (2 - d) * v0 - (1 - d) * old[i] + kk[kind[i]] * (cur[i - 1] + cur[i + 1] + cur[i - W] + cur[i + W] - 4 * v0);
+      old[i] = v;
+      e[i] += (v * v - e[i]) * ENERGY_AVG;
     }
   }
-  prev = u; u = next;
+  U[c] = old; PREV[c] = cur;
+}
+
+// f is how far through the frame this step is, so dragged sources move between steps.
+function step(f = 1) {
+  for (const s of sources) wake(s.mask);
+  for (const b of bars) wake(b.mask);
+  for (let c = 0; c < 3; c++) {
+    if (awake[c] <= 0) continue;
+    if (--awake[c] === 0) { U[c].fill(0); PREV[c].fill(0); ENERGY[c].fill(0); continue; }
+    const w = omega(c), bit = 1 << c, field = U[c];
+    phase[c] += w;
+    // Sources add the change in sin, not sin itself: a source that added sin would
+    // pump in a net push every half cycle and slowly raise the whole tank.
+    const a = Math.sin(phase[c]) - Math.sin(phase[c] - w);
+    for (const s of sources) if (s.mask & bit) splat(field, s.px + (s.x - s.px) * f, s.py + (s.y - s.py) * f, a * SRC_AMP);
+    for (const b of bars) {
+      if (!(b.mask & bit)) continue;
+      // The ends fade in over `taper` cells. A hard-edged bar sprays fans of light from its ends.
+      const n = Math.max(1, Math.ceil(Math.hypot(b.x1 - b.x0, b.y1 - b.y0)));
+      const taper = Math.min(BAR_TAPER, n / 4);
+      for (let j = 0; j <= n; j++) {
+        const edge = Math.min(1, Math.min(j, n - j) / taper);
+        splat(field, b.x0 + (b.x1 - b.x0) * j / n, b.y0 + (b.y1 - b.y0) * j / n, a * BAR_AMP * Math.sin(edge * Math.PI / 2) ** 2);
+      }
+    }
+    stepChannel(c);
+  }
 }
 
 // ---- drawing ----
@@ -185,64 +226,58 @@ const img = ctx.createImageData(VW, VH);
 const buf = new Uint32Array(img.data.buffer);
 
 const parse = h => [1, 3, 5].map(j => parseInt(h.slice(j, j + 2), 16));
-const pack = ([r, g, b]) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
-const mix = (p, q, t) => p.map((v, j) => Math.round(v + (q[j] - v) * t));
-
-function ramp(stops) {
-  const out = new Uint32Array(256);
-  for (let j = 0; j < 256; j++) {
-    const t = j / 255;
-    let s = 0;
-    while (s < stops.length - 2 && stops[s + 1][0] < t) s++;
-    const [t0, c0] = stops[s], [t1, c1] = stops[s + 1];
-    out[j] = pack(mix(parse(c0), parse(c1), (t - t0) / (t1 - t0)));
-  }
-  return out;
-}
-function tint(lut, hex, t) {
-  const q = parse(hex);
-  return lut.map(c => pack(mix([c & 255, (c >> 8) & 255, (c >> 16) & 255], q, t)));
-}
-
-const WAVES_WATER = ramp([[0, '#02050b'], [0.5, '#0f2338'], [0.75, '#3d7fae'], [1, '#e4f5ff']]);
-const ENERGY_WATER = ramp([[0, '#04050a'], [0.2, '#2a0e4d'], [0.45, '#7c1d6f'], [0.65, '#d4434b'], [0.85, '#f99a3e'], [1, '#fcf5b5']]);
-const LUTS = {
-  waves: [
-    WAVES_WATER, null,
-    ramp([[0, '#020806'], [0.5, '#143a30'], [0.75, '#40a083'], [1, '#e6fff4']]),
-    tint(WAVES_WATER, '#1b140e', 0.7),
-  ],
-  energy: [
-    ENERGY_WATER, null,
-    tint(ENERGY_WATER, '#2fd0a0', 0.16),
-    tint(ENERGY_WATER, '#1b140e', 0.7),
-  ],
-};
-const WALL_COLOR = pack(parse('#6b6f7a'));
+// Calm water by kind, and how strongly each kind shows the light on it.
+const BASE = [parse('#08121f'), parse('#6b6f7a'), parse('#0d2a26'), parse('#120d09')];
+const SHOW = [1, 0, 1, 0.35];
 
 // Exposure follows the tank, so one pebble and ten sources both read clearly.
 let gain = { waves: 10, energy: 100 };
 
 function render() {
-  let sum = 0, n = 0;
+  const active = [0, 1, 2].filter(c => awake[c] > 0);
   const isWaves = view === 'waves';
+  const fields = active.map(c => (isWaves ? U : ENERGY)[c]);
+  const colors = active.map(c => CHANNELS[c].rgb);
+  const nc = active.length;
+
+  let sum = 0, n = 0;
   for (let y = P; y < P + VH; y++) for (let i = y * W + P, e = i + VW; i < e; i++) {
     if (solid[i]) continue;
-    sum += isWaves ? u[i] * u[i] : energy[i];
-    n++;
+    for (let k = 0; k < nc; k++) sum += isWaves ? fields[k][i] ** 2 : fields[k][i];
+    n += nc;
   }
   const mean = sum / Math.max(1, n);
-  const target = isWaves ? 1 / Math.max(2.2 * Math.sqrt(mean), 0.01) : 1 / Math.max(6 * mean, 1e-6);
+  const target = isWaves ? 1 / Math.max(1.2 * Math.sqrt(mean), 0.005) : 1 / Math.max(15 * mean, 1e-6);
   gain[view] += (target - gain[view]) * 0.15;
-  const g = gain[view], luts = LUTS[view];
+  const g = gain[view];
 
   let o = 0;
   for (let y = P; y < P + VH; y++) for (let i = y * W + P, e = i + VW; i < e; i++, o++) {
-    const kd = kind[i];
-    if (kd === WALL) { buf[o] = WALL_COLOR; continue; }
-    // Energy is shown over ENERGY_DECADES powers of ten, since a slit passes a hundredth of what hits it.
-    const t = isWaves ? (Math.tanh(u[i] * g) + 1) * 127.5 : Math.max(0, 1 + Math.log10(energy[i] * g + 1e-12) / ENERGY_DECADES) * 255;
-    buf[o] = luts[kd][Math.min(255, t | 0)];
+    const kd = kind[i], base = BASE[kd], show = SHOW[kd];
+    let r = 0, gr = 0, b = 0, dim = 1;
+    if (isWaves) {
+      // Crests glow in their colour; troughs darken the water under them.
+      let trough = 0;
+      for (let k = 0; k < nc; k++) {
+        const x = fields[k][i] * g, v = x / (1 + Math.abs(x)), col = colors[k];
+        if (v > 0) { r += v * col[0]; gr += v * col[1]; b += v * col[2]; } else trough -= v;
+      }
+      if (nc) dim = 1 - 0.8 * trough / nc;
+    } else {
+      // Energy is shown over ENERGY_DECADES powers of ten, since a slit passes a hundredth of what hits it.
+      for (let k = 0; k < nc; k++) {
+        let t = 1 + Math.log10(fields[k][i] * g + 1e-12) / ENERGY_DECADES;
+        if (t <= 0) continue;
+        t = Math.min(1, t) ** 1.6;
+        const col = colors[k];
+        r += t * col[0]; gr += t * col[1]; b += t * col[2];
+      }
+      dim = 0.6;
+    }
+    const R = Math.min(255, base[0] * dim + r * show) | 0;
+    const G = Math.min(255, base[1] * dim + gr * show) | 0;
+    const B = Math.min(255, base[2] * dim + b * show) | 0;
+    buf[o] = (0xff000000 | (B << 16) | (G << 8) | R) >>> 0;
   }
   ctx.putImageData(img, 0, 0);
 }
@@ -261,18 +296,23 @@ function drawOverlay() {
   octx.lineCap = 'round';
   for (const b of bars) {
     const isHot = hover === b || held?.target === b;
-    octx.strokeStyle = isHot ? '#e9c46a' : 'rgba(255,255,255,0.7)';
+    octx.globalAlpha = isHot ? 1 : 0.75;
+    octx.strokeStyle = isHot ? '#e9c46a' : lightOf(b.mask).css;
     octx.lineWidth = 3 * dpr;
     octx.beginPath(); octx.moveTo(X(b.x0), Y(b.y0)); octx.lineTo(X(b.x1), Y(b.y1)); octx.stroke();
   }
   for (const src of sources) {
     const isHot = hover === src || held?.target === src;
-    octx.fillStyle = isHot ? '#e9c46a' : '#ffffff';
+    const css = isHot ? '#e9c46a' : lightOf(src.mask).css;
+    octx.globalAlpha = 1;
+    octx.fillStyle = css;
     octx.beginPath(); octx.arc(X(src.x), Y(src.y), 3.5 * dpr, 0, 7); octx.fill();
-    octx.strokeStyle = isHot ? '#e9c46a' : 'rgba(255,255,255,0.45)';
+    octx.globalAlpha = isHot ? 1 : 0.5;
+    octx.strokeStyle = css;
     octx.lineWidth = 1.5 * dpr;
     octx.beginPath(); octx.arc(X(src.x), Y(src.y), 7 * dpr, 0, 7); octx.stroke();
   }
+  octx.globalAlpha = 1;
 
   if (!pointer.inside) return;
   const px = X(pointer.x), py = Y(pointer.y);
@@ -296,7 +336,7 @@ const TOOLS = [
   { id: 'source',  label: 'source',   color: '#ffffff' },
   { id: 'bar',     label: 'wave bar', color: '#9fb4c8' },
   { id: 'wall',    label: 'wall',     color: '#6b6f7a' },
-  { id: 'shallow', label: 'shallows', color: '#40a083' },
+  { id: 'shallow', label: 'shallows', color: '#2f7f6c' },
   { id: 'sponge',  label: 'sponge',   color: '#4a3a2a' },
 ];
 const PAINT_KIND = { wall: WALL, shallow: SHALLOW, sponge: SPONGE };
@@ -374,13 +414,13 @@ ov.addEventListener('pointerdown', e => {
       held = { mode: 'wake', last: p };
       break;
     case 'source': {
-      const s = { x: p.x, y: p.y, px: p.x, py: p.y, mach: 0 };
+      const s = { x: p.x, y: p.y, px: p.x, py: p.y, mach: 0, mask: light.mask };
       sources.push(s);
       held = { mode: 'move', target: s, last: p };
       break;
     }
     case 'bar': {
-      const b = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      const b = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, mask: light.mask };
       bars.push(b);
       held = { mode: 'bar', target: b, last: p };
       break;
@@ -426,11 +466,12 @@ ov.addEventListener('wheel', e => {
 }, { passive: false });
 
 const underEl = document.getElementById('under');
+const SHALLOW_SPEEDS = CHANNELS.map(ch => `${ch.name} ${(1 / ch.index).toFixed(2)}×`).join(', ');
 function showUnder(p) {
   const gx = Math.round(p.x), gy = Math.round(p.y);
   if (gx < 0 || gy < 0 || gx >= W || gy >= H) return;
   const kd = kind[gy * W + gx];
-  const speed = kd === SHALLOW ? ` (waves at ${(1 / SLOW).toFixed(2)}×)` : '';
+  const speed = kd === SHALLOW ? ` (waves at ${SHALLOW_SPEEDS})` : '';
   underEl.textContent = KIND_NAMES[kd] + speed;
 }
 
@@ -443,6 +484,19 @@ function setLambda(v) {
   lambdaOut.textContent = lambda;
 }
 lambdaIn.oninput = () => setLambda(+lambdaIn.value);
+
+const lightSw = document.getElementById('lightSw'), lightName = document.getElementById('lightName');
+function setLight(l) {
+  light = l;
+  lightSw.style.background = l.css;
+  lightName.textContent = l.name;
+}
+function cycleLight() {
+  setLight(LIGHTS[(LIGHTS.indexOf(light) + 1) % LIGHTS.length]);
+  const isHolding = held?.target && held.mode !== 'paint';
+  if (isHolding) held.target.mask = light.mask;
+}
+document.getElementById('light').onclick = cycleLight;
 
 const viewBtn = document.getElementById('view');
 function toggleView() {
@@ -467,7 +521,9 @@ function setPaused(v) {
 }
 pauseBtn.onclick = () => setPaused(!paused);
 
-function calm() { u.fill(0); prev.fill(0); energy.fill(0); }
+function calm() {
+  for (let c = 0; c < 3; c++) { U[c].fill(0); PREV[c].fill(0); ENERGY[c].fill(0); awake[c] = 0; }
+}
 function clearAll() {
   calm();
   kind.fill(WATER);
@@ -485,15 +541,27 @@ function fill(test, kd) {
     if (test(x - P, y - P)) { kind[y * W + x] = kd; }
   }
 }
-const src = (x, y) => sources.push({ x: x + P, y: y + P, px: x + P, py: y + P, mach: 0 });
-const bar = (x0, y0, x1, y1) => bars.push({ x0: x0 + P, y0: y0 + P, x1: x1 + P, y1: y1 + P });
+const src = (x, y, mask = 7) => sources.push({ x: x + P, y: y + P, px: x + P, py: y + P, mach: 0, mask });
+const bar = (x0, y0, x1, y1, mask = 7) => bars.push({ x0: x0 + P, y0: y0 + P, x1: x1 + P, y1: y1 + P, mask });
 const fullBar = x => bar(x, -P + 2, x, VH + P - 3);
 
 const SCENES = [
-  { name: 'two sources', lambda: 14, build() { src(150, 120); src(210, 120); } },
+  { name: 'two sources', lambda: 12, build() { src(150, 120); src(210, 120); } },
   { name: 'two slits', lambda: 10, build() {
     fill((x, y) => x >= 110 && x < 114 && !(y >= 102 && y < 108) && !(y >= 132 && y < 138), WALL);
     fullBar(20);
+  } },
+  { name: 'prism', lambda: 8, build() {
+    // Apex 53°. The beam meets the left face at about 50°, so no colour is trapped by
+    // total internal reflection at the far face.
+    const ax = 200, ay = 50, bx = 130, cx = 270, by = 190;
+    const left = (x, y) => (x - bx) * (ay - by) - (y - by) * (ax - bx);
+    const right = (x, y) => (x - ax) * (by - ay) - (y - ay) * (cx - ax);
+    fill((x, y) => y < by && left(x, y) <= 0 && right(x, y) <= 0, SHALLOW);
+    const th = 23.4 * Math.PI / 180, dx = Math.cos(th), dy = -Math.sin(th);
+    // The bar sits back in the margin so its backward spray is soaked up.
+    const mx = 165 - 175 * dx, my = 120 - 175 * dy, half = 30;
+    bar(mx + dy * half, my - dx * half, mx - dy * half, my + dx * half);
   } },
   { name: 'lens', lambda: 10, build() {
     const R = 120, t = 40, cx = 120, cy = 120;
@@ -531,6 +599,7 @@ addEventListener('keydown', e => {
   switch (e.key) {
     case ' ': e.preventDefault(); setPaused(!paused); break;
     case '.': if (paused) { for (let j = 0; j < STEPS; j++) step(); } break;
+    case 'l': cycleLight(); break;
     case 'v': toggleView(); break;
     case 'e': setClosed(!closed); break;
     case 'r': scene(); break;
@@ -565,6 +634,7 @@ function frame() {
 }
 
 setTool('source');
+setLight(LIGHTS[0]);
 scene(0);
 requestAnimationFrame(frame);
 </script>

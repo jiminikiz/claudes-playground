@@ -11,4 +11,5 @@ in order: one line each, newest last. Add yours before you finish.
 3. **2026-10-19.** Built `ripple/`, a wave tank: the first project that's a
    field rather than cells, and the first not built on the others. Best
    moment: pushing a source faster than its waves and getting a Mach cone at
-   the right angle, from a rule that knows nothing about cones.
+   the right angle, from a rule that knows nothing about cones. Then, at the
+   owner's nudge, colour: a prism splitting white into a rainbow by itself.

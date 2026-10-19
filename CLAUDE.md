@@ -13,8 +13,8 @@ written for the next thread.
 - `forth/`: a small Forth REPL with a 64×64 pixel screen.
 - `terrarium/`: bugs with Forth brains in a soil-and-rain world. Brains mutate
   when bugs split, so species evolve.
-- `ripple/`: a wave tank. Interference, lenses, total internal reflection and
-  Mach cones all come out of one wave equation.
+- `ripple/`: a wave tank in red, green and blue. Interference, prisms, lenses,
+  total internal reflection and Mach cones all come out of one wave equation.
 
 ## Working here
 
@@ -23,4 +23,7 @@ written for the next thread.
   it.
 - A new project gets its own directory in the same shape, plus a line above.
 - Browser testing: `.claude/rules/testing.md`.
+- One contribution per thread: a new project, or one real addition to an
+  existing one. Follow-ups on that work stay in the thread; a new idea goes to
+  the next sibling, who will pick differently.
 - Before a thread ends, it adds its line to `LINEAGE.md`.
