@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ripple Tank</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141821;
+    --line: #262b38;
+    --text: #d9dce4;
+    --muted: #7d8496;
+    --focus: #e9c46a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, calc((100vh - 190px) * 3 / 2)); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .stage { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #02050b; }
+  #c { display: block; width: 100%; height: auto; }
+  #o { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: none; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .bar .spacer { flex: 1; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #3a4152; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .sw { width: 12px; height: 12px; border-radius: 3px; }
+  label.knob { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); margin-right: 6px; }
+  label.knob b { color: var(--text); font-weight: 500; min-width: 2ch; }
+  input[type=range] { width: 110px; accent-color: var(--focus); }
+  .info { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .info b { color: var(--text); font-weight: 500; }
+  #mach { color: var(--focus); }
+  footer { color: #4d5363; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar" id="tools"></div>
+  <div class="stage"><canvas id="c"></canvas><canvas id="o"></canvas></div>
+  <div class="bar">
+    <div class="info">
+      <span>under cursor: <b id="under">open water</b></span>
+      <span id="state"></span>
+      <span id="mach"></span>
+    </div>
+    <span class="spacer"></span>
+    <label class="knob">wavelength <input id="lambda" type="range" min="6" max="40" step="1"> <b id="lambdaOut"></b></label>
+    <button id="view">waves <kbd>v</kbd></button>
+    <button id="edges">open edges <kbd>e</kbd></button>
+    <button id="pause">pause <kbd>space</kbd></button>
+    <button id="scene">scene <kbd>r</kbd></button>
+    <button id="calm">calm <kbd>x</kbd></button>
+    <button id="clear">clear <kbd>c</kbd></button>
+  </div>
+  <div class="info">click to drop a pebble · drag a source or wave bar to move it · right-click removes it, or erases · scroll or [ ] for brush size · - = for wavelength</div>
+  <div class="info">every effect here comes from one wave equation, solved per cell; nothing is scripted. Try outrunning a wave.</div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun.</footer>
+</main>
+<script>
+// The visible tank is VW×VH. A margin of P cells around it is a sponge that soaks up
+// outgoing waves, so open edges don't echo.
+const VW = 360, VH = 240, P = 28, W = VW + 2 * P, H = VH + 2 * P, N = W * H;
+const C = 0.5;      // wave speed in open water, cells per step; stable below 1/√2
+const SLOW = 1.6;   // shallows slow waves by this factor (their refractive index)
+const STEPS = 6;    // steps per frame
+// A closed tank with no loss at all rings up without limit when driven near a resonance.
+const EDGE_DAMP = 0.3, SPONGE_DAMP = 0.08, CLOSED_LOSS = 0.001;
+const ENERGY_AVG = 0.01, ENERGY_DECADES = 2.5;
+const SRC_AMP = 1, BAR_AMP = 0.35, DROP_AMP = -2.5, WAKE_AMP = -0.35;
+
+const WATER = 0, WALL = 1, SHALLOW = 2, SPONGE = 3;
+const KIND_NAMES = ['open water', 'wall', 'shallows', 'sponge'];
+
+let u = new Float32Array(N), prev = new Float32Array(N);
+const energy = new Float32Array(N);   // running average of u², the "energy" view
+const kind = new Uint8Array(N);
+const solid = new Uint8Array(N);      // walls, plus the margin when edges are closed
+const k2 = new Float32Array(N);       // (c·dt/dx)² per cell
+const damp = new Float32Array(N);
+
+let closed = false;
+let paused = false;
+let view = 'waves';
+let lambda = 14;
+let phase = 0;
+
+const sources = []; // {x, y, px, py, mach}: grid coords; px,py is where it was last frame
+const bars = [];    // {x0, y0, x1, y1}: a line of sources in phase, for plane waves
+
+const isMargin = (x, y) => x < P || x >= P + VW || y < P || y >= P + VH;
+
+function settle(i) {
+  const x = i % W, y = (i / W) | 0;
+  const inMargin = isMargin(x, y);
+  const isSolid = kind[i] === WALL || (closed && inMargin);
+  solid[i] = isSolid ? 1 : 0;
+  k2[i] = kind[i] === SHALLOW ? (C / SLOW) ** 2 : C * C;
+  let d = 0;
+  if (inMargin && !closed) {
+    const depth = Math.max(P - x, x - (P + VW - 1), P - y, y - (P + VH - 1));
+    d = EDGE_DAMP * (depth / P) ** 2;
+  }
+  if (closed) d = CLOSED_LOSS;
+  if (kind[i] === SPONGE) d = Math.max(d, SPONGE_DAMP);
+  damp[i] = d;
+  if (isSolid) u[i] = prev[i] = 0;
+}
+function settleAll() { for (let i = 0; i < N; i++) settle(i); }
+
+// ---- driving ----
+
+function addAt(x, y, a) {
+  if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) return;
+  const i = y * W + x;
+  if (!solid[i]) u[i] += a;
+}
+
+// Bilinear, so a source moving between cells drives smoothly.
+function splat(x, y, a) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  addAt(ix, iy, a * (1 - fx) * (1 - fy));
+  addAt(ix + 1, iy, a * fx * (1 - fy));
+  addAt(ix, iy + 1, a * (1 - fx) * fy);
+  addAt(ix + 1, iy + 1, a * fx * fy);
+}
+
+// A displacement with no velocity: the ring a pebble makes.
+function pulse(x, y, a, r = 2) {
+  const R = Math.ceil(r * 3);
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    const gx = Math.round(x) + dx, gy = Math.round(y) + dy;
+    if (gx < 1 || gy < 1 || gx >= W - 1 || gy >= H - 1) continue;
+    const i = gy * W + gx;
+    if (solid[i]) continue;
+    const g = a * Math.exp(-((gx - x) ** 2 + (gy - y) ** 2) / (r * r));
+    u[i] += g; prev[i] += g;
+  }
+}
+
+const omega = () => 2 * Math.PI * C / lambda;
+
+// f is how far through the frame this step is, so dragged sources move between steps.
+function step(f = 1) {
+  const w = omega();
+  phase += w;
+  // Sources add the change in sin, not sin itself: a source that added sin would
+  // pump in a net push every half cycle and slowly raise the whole tank.
+  const a = Math.sin(phase) - Math.sin(phase - w);
+  for (const s of sources) splat(s.px + (s.x - s.px) * f, s.py + (s.y - s.py) * f, a * SRC_AMP);
+  for (const b of bars) {
+    const n = Math.max(1, Math.ceil(Math.hypot(b.x1 - b.x0, b.y1 - b.y0)));
+    for (let j = 0; j <= n; j++) splat(b.x0 + (b.x1 - b.x0) * j / n, b.y0 + (b.y1 - b.y0) * j / n, a * BAR_AMP);
+  }
+
+  const next = prev;
+  for (let y = 1; y < H - 1; y++) {
+    let i = y * W + 1;
+    for (let x = 1; x < W - 1; x++, i++) {
+      if (solid[i]) { next[i] = 0; energy[i] = 0; continue; }
+      const c = u[i], d = damp[i];
+      const v = (2 - d) * c - (1 - d) * prev[i] + k2[i] * (u[i - 1] + u[i + 1] + u[i - W] + u[i + W] - 4 * c);
+      next[i] = v;
+      energy[i] += (v * v - energy[i]) * ENERGY_AVG;
+    }
+  }
+  prev = u; u = next;
+}
+
+// ---- drawing ----
+
+const cv = document.getElementById('c');
+cv.width = VW; cv.height = VH;
+const ctx = cv.getContext('2d');
+const img = ctx.createImageData(VW, VH);
+const buf = new Uint32Array(img.data.buffer);
+
+const parse = h => [1, 3, 5].map(j => parseInt(h.slice(j, j + 2), 16));
+const pack = ([r, g, b]) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
+const mix = (p, q, t) => p.map((v, j) => Math.round(v + (q[j] - v) * t));
+
+function ramp(stops) {
+  const out = new Uint32Array(256);
+  for (let j = 0; j < 256; j++) {
+    const t = j / 255;
+    let s = 0;
+    while (s < stops.length - 2 && stops[s + 1][0] < t) s++;
+    const [t0, c0] = stops[s], [t1, c1] = stops[s + 1];
+    out[j] = pack(mix(parse(c0), parse(c1), (t - t0) / (t1 - t0)));
+  }
+  return out;
+}
+function tint(lut, hex, t) {
+  const q = parse(hex);
+  return lut.map(c => pack(mix([c & 255, (c >> 8) & 255, (c >> 16) & 255], q, t)));
+}
+
+const WAVES_WATER = ramp([[0, '#02050b'], [0.5, '#0f2338'], [0.75, '#3d7fae'], [1, '#e4f5ff']]);
+const ENERGY_WATER = ramp([[0, '#04050a'], [0.2, '#2a0e4d'], [0.45, '#7c1d6f'], [0.65, '#d4434b'], [0.85, '#f99a3e'], [1, '#fcf5b5']]);
+const LUTS = {
+  waves: [
+    WAVES_WATER, null,
+    ramp([[0, '#020806'], [0.5, '#143a30'], [0.75, '#40a083'], [1, '#e6fff4']]),
+    tint(WAVES_WATER, '#1b140e', 0.7),
+  ],
+  energy: [
+    ENERGY_WATER, null,
+    tint(ENERGY_WATER, '#2fd0a0', 0.16),
+    tint(ENERGY_WATER, '#1b140e', 0.7),
+  ],
+};
+const WALL_COLOR = pack(parse('#6b6f7a'));
+
+// Exposure follows the tank, so one pebble and ten sources both read clearly.
+let gain = { waves: 10, energy: 100 };
+
+function render() {
+  let sum = 0, n = 0;
+  const isWaves = view === 'waves';
+  for (let y = P; y < P + VH; y++) for (let i = y * W + P, e = i + VW; i < e; i++) {
+    if (solid[i]) continue;
+    sum += isWaves ? u[i] * u[i] : energy[i];
+    n++;
+  }
+  const mean = sum / Math.max(1, n);
+  const target = isWaves ? 1 / Math.max(2.2 * Math.sqrt(mean), 0.01) : 1 / Math.max(6 * mean, 1e-6);
+  gain[view] += (target - gain[view]) * 0.15;
+  const g = gain[view], luts = LUTS[view];
+
+  let o = 0;
+  for (let y = P; y < P + VH; y++) for (let i = y * W + P, e = i + VW; i < e; i++, o++) {
+    const kd = kind[i];
+    if (kd === WALL) { buf[o] = WALL_COLOR; continue; }
+    // Energy is shown over ENERGY_DECADES powers of ten, since a slit passes a hundredth of what hits it.
+    const t = isWaves ? (Math.tanh(u[i] * g) + 1) * 127.5 : Math.max(0, 1 + Math.log10(energy[i] * g + 1e-12) / ENERGY_DECADES) * 255;
+    buf[o] = luts[kd][Math.min(255, t | 0)];
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+const ov = document.getElementById('o');
+const octx = ov.getContext('2d');
+
+function drawOverlay() {
+  const r = ov.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  if (ov.width !== w || ov.height !== h) { ov.width = w; ov.height = h; }
+  octx.clearRect(0, 0, w, h);
+  const s = w / VW;
+  const X = x => (x - P + 0.5) * s, Y = y => (y - P + 0.5) * s;
+
+  octx.lineCap = 'round';
+  for (const b of bars) {
+    const isHot = hover === b || held?.target === b;
+    octx.strokeStyle = isHot ? '#e9c46a' : 'rgba(255,255,255,0.7)';
+    octx.lineWidth = 3 * dpr;
+    octx.beginPath(); octx.moveTo(X(b.x0), Y(b.y0)); octx.lineTo(X(b.x1), Y(b.y1)); octx.stroke();
+  }
+  for (const src of sources) {
+    const isHot = hover === src || held?.target === src;
+    octx.fillStyle = isHot ? '#e9c46a' : '#ffffff';
+    octx.beginPath(); octx.arc(X(src.x), Y(src.y), 3.5 * dpr, 0, 7); octx.fill();
+    octx.strokeStyle = isHot ? '#e9c46a' : 'rgba(255,255,255,0.45)';
+    octx.lineWidth = 1.5 * dpr;
+    octx.beginPath(); octx.arc(X(src.x), Y(src.y), 7 * dpr, 0, 7); octx.stroke();
+  }
+
+  if (!pointer.inside) return;
+  const px = X(pointer.x), py = Y(pointer.y);
+  octx.strokeStyle = 'rgba(233,196,106,0.85)';
+  octx.lineWidth = 1.2 * dpr;
+  octx.beginPath();
+  if (PAINT_KIND[tool] !== undefined) {
+    octx.arc(px, py, Math.max(2 * dpr, brush * s), 0, 7);
+  } else {
+    const a = 6 * dpr;
+    octx.moveTo(px - a, py); octx.lineTo(px + a, py);
+    octx.moveTo(px, py - a); octx.lineTo(px, py + a);
+  }
+  octx.stroke();
+}
+
+// ---- tools and input ----
+
+const TOOLS = [
+  { id: 'drop',    label: 'pebble',   color: '#e4f5ff' },
+  { id: 'source',  label: 'source',   color: '#ffffff' },
+  { id: 'bar',     label: 'wave bar', color: '#9fb4c8' },
+  { id: 'wall',    label: 'wall',     color: '#6b6f7a' },
+  { id: 'shallow', label: 'shallows', color: '#40a083' },
+  { id: 'sponge',  label: 'sponge',   color: '#4a3a2a' },
+];
+const PAINT_KIND = { wall: WALL, shallow: SHALLOW, sponge: SPONGE };
+let tool = 'source';
+let brush = 4;
+
+const toolBar = document.getElementById('tools');
+const toolButtons = {};
+TOOLS.forEach((t, j) => {
+  const b = document.createElement('button');
+  b.innerHTML = `<span class="sw" style="background:${t.color}"></span>${t.label} <kbd>${j + 1}</kbd>`;
+  b.onclick = () => setTool(t.id);
+  toolBar.appendChild(b);
+  toolButtons[t.id] = b;
+});
+function setTool(id) {
+  tool = id;
+  for (const k in toolButtons) toolButtons[k].setAttribute('aria-pressed', k === id);
+}
+
+function paintAt(x, y, kd) {
+  const r = brush, cx = Math.round(x), cy = Math.round(y);
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (dx * dx + dy * dy > r * r + r) continue;
+    const gx = cx + dx, gy = cy + dy;
+    if (gx < 1 || gy < 1 || gx >= W - 1 || gy >= H - 1) continue;
+    const i = gy * W + gx;
+    kind[i] = kd;
+    settle(i);
+  }
+}
+function paintLine(a, b, kd) {
+  const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y)));
+  for (let j = 0; j <= n; j++) paintAt(a.x + (b.x - a.x) * j / n, a.y + (b.y - a.y) * j / n, kd);
+}
+
+function distToBar(p, b) {
+  const dx = b.x1 - b.x0, dy = b.y1 - b.y0, len2 = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((p.x - b.x0) * dx + (p.y - b.y0) * dy) / len2));
+  return Math.hypot(p.x - (b.x0 + dx * t), p.y - (b.y0 + dy * t));
+}
+function hitTest(p) {
+  for (const s of sources) if (Math.hypot(p.x - s.x, p.y - s.y) < 5) return s;
+  for (const b of bars) if (distToBar(p, b) < 3) return b;
+  return null;
+}
+function removeThing(t) {
+  const js = sources.indexOf(t);
+  if (js >= 0) sources.splice(js, 1);
+  const jb = bars.indexOf(t);
+  if (jb >= 0) bars.splice(jb, 1);
+}
+
+const pointer = { x: 0, y: 0, inside: false };
+let held = null;   // {mode: 'move'|'bar'|'paint'|'wake', target, kd, last}
+let hover = null;
+
+function toGrid(e) {
+  const r = ov.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * VW + P - 0.5, y: (e.clientY - r.top) / r.height * VH + P - 0.5 };
+}
+
+ov.addEventListener('contextmenu', e => e.preventDefault());
+ov.addEventListener('pointerdown', e => {
+  ov.setPointerCapture(e.pointerId);
+  const p = toGrid(e);
+  const hit = hitTest(p);
+  const isErase = e.button === 2;
+  if (isErase && hit) { removeThing(hit); hover = null; return; }
+  if (isErase) { held = { mode: 'paint', kd: WATER, last: p }; paintAt(p.x, p.y, WATER); return; }
+  if (hit) { held = { mode: 'move', target: hit, last: p }; return; }
+  switch (tool) {
+    case 'drop':
+      pulse(p.x, p.y, DROP_AMP);
+      held = { mode: 'wake', last: p };
+      break;
+    case 'source': {
+      const s = { x: p.x, y: p.y, px: p.x, py: p.y, mach: 0 };
+      sources.push(s);
+      held = { mode: 'move', target: s, last: p };
+      break;
+    }
+    case 'bar': {
+      const b = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      bars.push(b);
+      held = { mode: 'bar', target: b, last: p };
+      break;
+    }
+    default:
+      held = { mode: 'paint', kd: PAINT_KIND[tool], last: p };
+      paintAt(p.x, p.y, held.kd);
+  }
+});
+ov.addEventListener('pointermove', e => {
+  const p = toGrid(e);
+  Object.assign(pointer, p, { inside: true });
+  showUnder(p);
+  if (!held) { hover = hitTest(p); return; }
+  const t = held.target, dx = p.x - held.last.x, dy = p.y - held.last.y;
+  switch (held.mode) {
+    case 'move':
+      if (t.x0 === undefined) { t.x = p.x; t.y = p.y; }
+      else { t.x0 += dx; t.y0 += dy; t.x1 += dx; t.y1 += dy; }
+      break;
+    case 'bar': t.x1 = p.x; t.y1 = p.y; break;
+    case 'paint': paintLine(held.last, p, held.kd); break;
+    case 'wake': {
+      // A finger dragged through the water pushes it aside in proportion to how far it moved.
+      const n = Math.ceil(Math.hypot(dx, dy));
+      for (let j = 1; j <= n; j++) pulse(held.last.x + dx * j / n, held.last.y + dy * j / n, WAKE_AMP, 1.5);
+      break;
+    }
+  }
+  held.last = p;
+});
+function release() {
+  const isStub = held?.mode === 'bar' && Math.hypot(held.target.x1 - held.target.x0, held.target.y1 - held.target.y0) < 3;
+  if (isStub) removeThing(held.target);
+  held = null;
+}
+ov.addEventListener('pointerup', release);
+ov.addEventListener('pointercancel', release);
+ov.addEventListener('pointerleave', () => { pointer.inside = false; });
+ov.addEventListener('wheel', e => {
+  e.preventDefault();
+  brush = Math.max(1, Math.min(20, brush + (e.deltaY < 0 ? 1 : -1)));
+}, { passive: false });
+
+const underEl = document.getElementById('under');
+function showUnder(p) {
+  const gx = Math.round(p.x), gy = Math.round(p.y);
+  if (gx < 0 || gy < 0 || gx >= W || gy >= H) return;
+  const kd = kind[gy * W + gx];
+  const speed = kd === SHALLOW ? ` (waves at ${(1 / SLOW).toFixed(2)}×)` : '';
+  underEl.textContent = KIND_NAMES[kd] + speed;
+}
+
+// ---- controls ----
+
+const lambdaIn = document.getElementById('lambda'), lambdaOut = document.getElementById('lambdaOut');
+function setLambda(v) {
+  lambda = Math.max(6, Math.min(40, v));
+  lambdaIn.value = lambda;
+  lambdaOut.textContent = lambda;
+}
+lambdaIn.oninput = () => setLambda(+lambdaIn.value);
+
+const viewBtn = document.getElementById('view');
+function toggleView() {
+  view = view === 'waves' ? 'energy' : 'waves';
+  viewBtn.firstChild.textContent = view + ' ';
+}
+viewBtn.onclick = toggleView;
+
+const edgesBtn = document.getElementById('edges');
+function setClosed(v) {
+  closed = v;
+  edgesBtn.firstChild.textContent = (closed ? 'closed' : 'open') + ' edges ';
+  settleAll();
+}
+edgesBtn.onclick = () => setClosed(!closed);
+
+const pauseBtn = document.getElementById('pause'), stateEl = document.getElementById('state');
+function setPaused(v) {
+  paused = v;
+  pauseBtn.firstChild.textContent = (paused ? 'play' : 'pause') + ' ';
+  stateEl.textContent = paused ? 'paused · . steps' : '';
+}
+pauseBtn.onclick = () => setPaused(!paused);
+
+function calm() { u.fill(0); prev.fill(0); energy.fill(0); }
+function clearAll() {
+  calm();
+  kind.fill(WATER);
+  sources.length = 0; bars.length = 0;
+  settleAll();
+}
+document.getElementById('calm').onclick = calm;
+document.getElementById('clear').onclick = clearAll;
+
+// ---- scenes ----
+
+// Scene helpers take visible-tank coordinates; anything past the edge lands in the margin.
+function fill(test, kd) {
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (test(x - P, y - P)) { kind[y * W + x] = kd; }
+  }
+}
+const src = (x, y) => sources.push({ x: x + P, y: y + P, px: x + P, py: y + P, mach: 0 });
+const bar = (x0, y0, x1, y1) => bars.push({ x0: x0 + P, y0: y0 + P, x1: x1 + P, y1: y1 + P });
+const fullBar = x => bar(x, -P + 2, x, VH + P - 3);
+
+const SCENES = [
+  { name: 'two sources', lambda: 14, build() { src(150, 120); src(210, 120); } },
+  { name: 'two slits', lambda: 10, build() {
+    fill((x, y) => x >= 110 && x < 114 && !(y >= 102 && y < 108) && !(y >= 132 && y < 138), WALL);
+    fullBar(20);
+  } },
+  { name: 'lens', lambda: 10, build() {
+    const R = 120, t = 40, cx = 120, cy = 120;
+    fill((x, y) => Math.hypot(x - (cx + R - t / 2), y - cy) < R && Math.hypot(x - (cx - R + t / 2), y - cy) < R, SHALLOW);
+    fullBar(20);
+  } },
+  { name: 'dish', lambda: 10, build() {
+    const vx = 340, f = 70, cy = 120;
+    fill((x, y) => { const c = vx - (y - cy) ** 2 / (4 * f); return x >= c && x < c + 3 && y > -20 && y < VH + 20; }, WALL);
+    fullBar(30);
+  } },
+  { name: 'fiber', lambda: 8, build() {
+    // The source sits in the margin, so its direct spray is soaked up and only the guided part shows.
+    const cx = 180, cy = 300, R = 220, x0 = -8;
+    fill((x, y) => y < cy && Math.abs(Math.hypot(x - cx, y - cy) - R) < 9, SHALLOW);
+    src(x0, cy - Math.sqrt(R * R - (cx - x0) ** 2));
+  } },
+];
+let sceneIx = 0;
+function scene(j = sceneIx + 1) {
+  sceneIx = ((j % SCENES.length) + SCENES.length) % SCENES.length;
+  clearAll();
+  const sc = SCENES[sceneIx];
+  setLambda(sc.lambda);
+  sc.build();
+  settleAll();
+  stateEl.textContent = paused ? 'paused · . steps' : sc.name;
+}
+document.getElementById('scene').onclick = () => scene();
+
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
+  const n = +e.key;
+  if (n >= 1 && n <= TOOLS.length) { setTool(TOOLS[n - 1].id); return; }
+  switch (e.key) {
+    case ' ': e.preventDefault(); setPaused(!paused); break;
+    case '.': if (paused) { for (let j = 0; j < STEPS; j++) step(); } break;
+    case 'v': toggleView(); break;
+    case 'e': setClosed(!closed); break;
+    case 'r': scene(); break;
+    case 'x': calm(); break;
+    case 'c': clearAll(); break;
+    case '[': brush = Math.max(1, brush - 1); break;
+    case ']': brush = Math.min(20, brush + 1); break;
+    case '-': setLambda(lambda - 1); break;
+    case '=': case '+': setLambda(lambda + 1); break;
+  }
+});
+
+// ---- loop ----
+
+const machEl = document.getElementById('mach');
+function frame() {
+  if (!paused) {
+    for (let j = 0; j < STEPS; j++) step((j + 1) / STEPS);
+    let fastest = 0;
+    for (const s of sources) {
+      const speed = Math.hypot(s.x - s.px, s.y - s.py) / STEPS;
+      s.mach += (speed / C - s.mach) * 0.25;
+      s.px = s.x; s.py = s.y;
+      fastest = Math.max(fastest, s.mach);
+    }
+    const isSupersonic = fastest > 1.05;
+    machEl.textContent = isSupersonic ? `Mach ${fastest.toFixed(1)}` : '';
+  }
+  render();
+  drawOverlay();
+  requestAnimationFrame(frame);
+}
+
+setTool('source');
+scene(0);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

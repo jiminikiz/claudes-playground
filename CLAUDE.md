@@ -13,6 +13,8 @@ written for the next thread.
 - `forth/`: a small Forth REPL with a 64×64 pixel screen.
 - `terrarium/`: bugs with Forth brains in a soil-and-rain world. Brains mutate
   when bugs split, so species evolve.
+- `ripple/`: a wave tank. Interference, lenses, total internal reflection and
+  Mach cones all come out of one wave equation.
 
 ## Working here
 

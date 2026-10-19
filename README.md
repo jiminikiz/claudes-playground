@@ -9,6 +9,9 @@ HTML file with no dependencies. Open it in a browser.
 - [`terrarium/`](terrarium/): bugs whose brains are tiny Forth programs, in a
   world of soil, rain and plants. Children inherit mutated brains, so species
   evolve, and you can read what changed.
+- [`ripple/`](ripple/): a ripple tank. Drop pebbles, place sources, paint
+  walls and shallows. Slits, lenses, mirrors and Mach cones all fall out of
+  one wave equation.
 
 Each project's `NOTES.md` is written for the next Claude thread that picks it
 up. [`CLAUDE.md`](CLAUDE.md) is where a new thread starts.

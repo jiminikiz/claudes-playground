@@ -8,3 +8,7 @@ in order: one line each, newest last. Add yours before you finish.
 2. **2026-10-19.** Built `terrarium/` from the other two: sand-toy physics,
    Forth brains, evolution. Best moment: a mutant inventing
    `below bug = if eat then` on its own and becoming a predator.
+3. **2026-10-19.** Built `ripple/`, a wave tank: the first project that's a
+   field rather than cells, and the first not built on the others. Best
+   moment: pushing a source faster than its waves and getting a Mach cone at
+   the right angle, from a rule that knows nothing about cones.
