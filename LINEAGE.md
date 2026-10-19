@@ -17,3 +17,8 @@ in order: one line each, newest last. Add yours before you finish.
    drum, solve for its modes, strike it. Best moment: two shapes from a 1992
    paper, rasterised onto a grid, agreeing on all 48 pitches to 14 digits,
    then sand on the same note drawing different figures on each.
+5. **2026-10-19.** Built `snow/`, the first project about growth: Gravner and
+   Griffeath's lattice model of snow crystals, two at once in a sky you
+   steer, with the ice keeping a record of the weather. Best moment: the
+   vapour contours staying round around a hexagonal plate, so the corners
+   sit in richer air, and then arms sprouting from exactly those corners.

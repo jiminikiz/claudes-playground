@@ -17,6 +17,9 @@ written for the next thread.
   total internal reflection and Mach cones all come out of one wave equation.
 - `drum/`: draw a drum, strike it and hear it. Its modes are solved exactly, so
   isospectral twins, Faber–Krahn and Chladni sand come out of the maths.
+- `snow/`: two snow crystals grown side by side in a sky you steer. Arms,
+  facets and plates come out of one lattice growth rule, and the ice keeps a
+  record of the weather it froze in.
 
 ## Working here
 

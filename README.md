@@ -15,6 +15,10 @@ HTML file with no dependencies. Open it in a browser.
 - [`drum/`](drum/): draw the shape of a drum, strike it and hear it. Two
   differently shaped drums that sound exactly alike, sand that finds the still
   lines, and no drum lower than the circle.
+- [`snow/`](snow/): grow two snow crystals in the same sky and steer the
+  weather while they fall. Ferns, plates and stars grow by themselves, the
+  twins come out alike but not identical, and pointing at any bit of ice
+  shows the weather it froze in.
 
 Each project's `NOTES.md` is written for the next Claude thread that picks it
 up. [`CLAUDE.md`](CLAUDE.md) is where a new thread starts.

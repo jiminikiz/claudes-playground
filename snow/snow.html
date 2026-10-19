@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Letters from the Sky</title>
+<style>
+  :root {
+    --bg: #0a0d14;
+    --panel: #141821;
+    --line: #262b38;
+    --text: #d9dce4;
+    --muted: #7d8496;
+    --focus: #e9c46a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 960px); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; border: 1px solid var(--line); border-radius: 8px; background: #06080c; }
+  #stage { width: 100%; height: auto; touch-action: none; }
+  #pad { width: 260px; height: 260px; flex: none; touch-action: none; cursor: crosshair; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .bar .spacer { flex: 1; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #3a4152; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+  .col { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 8px; }
+  .info { color: var(--muted); font-size: 13px; }
+  .info b { color: var(--text); font-weight: 500; }
+  #caption, #status { color: var(--text); }
+  #read { color: var(--focus); min-height: 2.8em; }
+  footer { color: #4d5363; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar" id="skies"></div>
+  <div id="caption" class="info"></div>
+  <canvas id="stage"></canvas>
+  <div class="row">
+    <canvas id="pad"></canvas>
+    <div class="col">
+      <div class="info" id="status"></div>
+      <div class="info" id="read"></div>
+      <div class="info">Two crystals grow side by side in the same sky. Vapour drifts in from all round and freezes where it touches ice. A tip that sticks out reaches more vapour than the ice behind it, so it grows faster and sticks out further, and that is how arms and branches start. Nothing in the rules draws an arm, a branch or a facet. The only difference between the two crystals is the jitter in the air around each one.</div>
+      <div class="info">Drag the dot to change the weather while they grow. Up is more vapour. Right makes it harder for new ice to take hold on an edge, so hollows fill in first and faces grow flat. In a real cloud, temperature sets that. The line is the path the crystals have fallen through.</div>
+      <div class="info">Point at any part of a crystal to see the sky it froze in, and the crystal as it was then. Point at the path to see the crystals as they left that weather.</div>
+      <div class="info">Show vapour draws the air. The lines mark a quarter, a half and three quarters of the sky's vapour. They bunch up at the tips, where vapour arrives fastest, and the hollows between arms go dark because the arms drink the air before it gets there.</div>
+      <div class="bar">
+        <button id="vapour">show vapour <kbd>v</kbd></button>
+        <button id="pause">pause <kbd>space</kbd></button>
+        <button id="again">new pair <kbd>n</kbd></button>
+      </div>
+    </div>
+  </div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun. The growth rules are Gravner and Griffeath's lattice model of snow crystals (2008).</footer>
+</main>
+<script>
+// ---------------------------------------------------------------- the model
+// Gravner & Griffeath, "Modeling snow crystal growth II", Physica D 237 (2008). Each site of a
+// hexagonal lattice holds vapour d, a quasi-liquid boundary layer b and ice c, and is either part of
+// the crystal or not. A step is: vapour diffuses; at the boundary, vapour freezes into b and c;
+// boundary sites with enough b join the crystal; a little b and c melt back into vapour; the air
+// jitters. The lattice is axial (q, r) in an N×N array; a site's six neighbours are ±1, ±N, ±(N-1).
+const R = 140;                 // radius of the disc of air around each crystal, in sites
+const N = Math.ceil(2.32 * R) + 5, C0 = N >> 1;
+const NB = [1, -1, N, -N, 1 - N, N - 1];
+const ALPHA = 0.2, THETA = 0.025, KAPPA = 0.005, MU = 0.03, GAMMA = 0.0001, SIGMA = 0.003;
+const DONE = R - 5;            // a crystal stops when it reaches this radius
+const B_MIN = 1.2, B_MAX = 3.0, RHO_MIN = 0.4, RHO_MAX = 0.8;
+
+// Sites inside the disc. Everything outside it is the far air, held at the sky's vapour density.
+const inside = new Uint8Array(N * N), siteR = new Float32Array(N * N);
+const cells = (() => {
+  const list = [];
+  for (let r = 0; r < N; r++) for (let q = 0; q < N; q++) {
+    const i = r * N + q, x = (q - C0) + (r - C0) / 2, y = (r - C0) * Math.sqrt(3) / 2;
+    siteR[i] = Math.hypot(x, y);
+    if (siteR[i] <= R) { inside[i] = 1; list.push(i); }
+  }
+  return Int32Array.from(list);
+})();
+
+function makeFlake(seed) {
+  const f = {
+    a: new Uint8Array(N * N),        // 1 if ice
+    nA: new Uint8Array(N * N),       // ice neighbours
+    onB: new Uint8Array(N * N),      // 1 if in the boundary list
+    b: new Float32Array(N * N), c: new Float32Array(N * N),
+    d: new Float32Array(N * N), e: new Float32Array(N * N),   // vapour, and the buffer it diffuses into
+    born: new Int32Array(N * N).fill(-1),                      // step at which a site froze
+    edge: new Int32Array(N * N), nEdge: 0,
+    rho: sky.rho, rng: seed >>> 0 || 1, radius: 0, sites: 0,
+  };
+  f.d.fill(sky.rho); f.e.fill(sky.rho);
+  f.c[C0 * N + C0] = 1;
+  attach(f, C0 * N + C0, 0);
+  return f;
+}
+
+function attach(f, i, t) {
+  const { a, nA, onB, b, c, d, e, edge } = f;
+  a[i] = 1; c[i] += b[i]; b[i] = 0; d[i] = 0; e[i] = 0; f.born[i] = t; f.sites++;
+  if (siteR[i] > f.radius) f.radius = siteR[i];
+  if (onB[i]) onB[i] = 2;          // dropped from the list by the caller
+  for (let m = 0; m < 6; m++) {
+    const j = i + NB[m];
+    nA[j]++;
+    if (!a[j] && !onB[j] && inside[j]) { onB[j] = 1; edge[f.nEdge++] = j; }
+  }
+}
+
+// The sky changed. The crystal falls into it whole, so every bit of air around it changes at once.
+function setRho(f, rho) {
+  const k = rho / f.rho, { a, onB, d, e } = f;
+  for (let i = 0; i < N * N; i++) {
+    if (!inside[i]) { d[i] = rho; e[i] = rho; }
+    else if (!a[i] && !onB[i]) d[i] *= k;
+  }
+  f.rho = rho;
+}
+
+function stepFlake(f, t) {
+  if (f.rho !== sky.rho) setRho(f, sky.rho);
+  const { a, nA, onB, b, c, edge } = f, beta = sky.beta;
+  let d = f.d, e = f.e, rng = f.rng;
+  // 1. Diffusion: each air site becomes the mean of itself and its six neighbours. Ice reflects.
+  for (let k = 0; k < cells.length; k++) {
+    const i = cells[k];
+    if (a[i]) continue;
+    const x = d[i];
+    let s = x
+      + (a[i + 1] ? x : d[i + 1]) + (a[i - 1] ? x : d[i - 1])
+      + (a[i + N] ? x : d[i + N]) + (a[i - N] ? x : d[i - N])
+      + (a[i + 1 - N] ? x : d[i + 1 - N]) + (a[i - 1 + N] ? x : d[i - 1 + N]);
+    rng ^= rng << 13; rng ^= rng >>> 17; rng ^= rng << 5;
+    e[i] = s * ((rng & 1) ? (1 + SIGMA) / 7 : (1 - SIGMA) / 7);
+  }
+  f.d = e; f.e = d; d = e; f.rng = rng;
+  // 2. Freezing: vapour at the boundary turns into boundary layer and, a little, into ice.
+  const n0 = f.nEdge;
+  for (let k = 0; k < n0; k++) {
+    const i = edge[k], x = d[i];
+    b[i] += (1 - KAPPA) * x; c[i] += KAPPA * x; d[i] = 0;
+  }
+  // 3. Attachment. Tips and flat faces (1–2 ice neighbours) need beta; hollows need less.
+  const join = [];
+  for (let k = 0; k < n0; k++) {
+    const i = edge[k], n = nA[i];
+    let isJoining = n >= 4;
+    if (n <= 2) isJoining = b[i] >= beta;
+    else if (n === 3) {
+      const isQuiet = d[i] + d[i + 1] + d[i - 1] + d[i + N] + d[i - N] + d[i + 1 - N] + d[i - 1 + N] < THETA;
+      isJoining = b[i] >= 1 || (b[i] >= ALPHA && isQuiet);
+    }
+    if (isJoining) join.push(i);
+  }
+  if (join.length) {
+    for (const i of join) attach(f, i, t);
+    let w = 0;
+    for (let k = 0; k < f.nEdge; k++) if (onB[edge[k]] === 1) edge[w++] = edge[k];
+    f.nEdge = w;
+    for (const i of join) onB[i] = 0;
+  }
+  // 4. Melting: some of the boundary layer and the ice goes back to vapour.
+  for (let k = 0; k < f.nEdge; k++) {
+    const i = edge[k];
+    d[i] += MU * b[i] + GAMMA * c[i];
+    b[i] *= 1 - MU; c[i] *= 1 - GAMMA;
+  }
+}
+
+// ---------------------------------------------------------------- the sky
+// A preset sky gives the weather as a function of how far crystal A has grown, u = radius / R.
+const SKIES = [
+  { key: '1', name: 'fern', say: 'Lots of vapour, and tips that stick easily: a fern, branching all the way out.', at: u => [1.3, 0.7] },
+  { key: '2', name: 'star', say: 'Thin air and easy tips: a sparse star.', at: u => [1.25, 0.42] },
+  { key: '3', name: 'broad arms', say: 'Plenty of vapour, and edges that are a little hard to start on: broad arms with flat faces and ribs.', at: u => [2.2, 0.75] },
+  { key: '4', name: 'plate, then fern', say: 'It starts as a plate, then falls into wetter air. Each corner of the plate sends out an arm.', at: u => u < 0.27 ? [2.6, 0.7] : [1.4, 0.65] },
+  { key: '5', name: 'fern, then plate', say: 'It starts as a fern, then falls into air where edges are hard to start on. The branches fill in from the tips.', at: u => u < 0.55 ? [1.4, 0.6] : [2.7, 0.75] },
+  { key: '6', name: 'rings', say: 'It falls through layer after layer, each laying down a band.', at: u => Math.floor(u * 5) % 2 ? [1.5, 0.6] : [2.7, 0.75] },
+];
+const sky = { beta: 2.6, rho: 0.5, preset: SKIES[3] };
+let flakes, T, trail, paused = false, showVapour = false, hoverT = null, isHoverOnIce = true;
+
+function newPair(preset = sky.preset) {
+  sky.preset = preset;
+  if (preset) [sky.beta, sky.rho] = preset.at(0);
+  const seed = (Math.random() * 2 ** 31) | 1;
+  flakes = [makeFlake(seed), makeFlake(seed ^ 0x5bd1e995)];
+  T = 0;
+  trail = [{ t: 0, beta: sky.beta, rho: sky.rho }];
+  hoverT = null;
+  paused = false;
+  updateButtons();
+}
+
+function setWeather(beta, rho) {
+  if (beta === sky.beta && rho === sky.rho) return;
+  sky.beta = beta; sky.rho = rho;
+  const last = trail[trail.length - 1];
+  if (last.t === T) { last.beta = beta; last.rho = rho; } else trail.push({ t: T, beta, rho });
+}
+
+function weatherAt(t) {
+  let lo = 0, hi = trail.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (trail[m].t <= t) lo = m; else hi = m - 1; }
+  return trail[lo];
+}
+
+const isGrowing = f => f.radius < DONE;
+
+function step() {
+  if (sky.preset) { const [beta, rho] = sky.preset.at(flakes[0].radius / R); setWeather(beta, rho); }
+  T++;
+  for (const f of flakes) if (isGrowing(f)) stepFlake(f, T);
+}
+
+// ---------------------------------------------------------------- drawing the crystals
+const S = 2;                                   // canvas pixels per site
+const PW = Math.round(2 * R * S + 12), GAP = 10;
+const stage = document.getElementById('stage'), sctx = stage.getContext('2d');
+stage.width = 2 * PW + GAP; stage.height = PW;
+const img = sctx.createImageData(stage.width, stage.height), px32 = new Uint32Array(img.data.buffer);
+
+// Panel pixel → site, or -1 outside the disc. The lattice's q axis points up, so one arm does too.
+const pixSite = (() => {
+  const map = new Int32Array(PW * PW).fill(-1);
+  for (let py = 0; py < PW; py++) for (let px = 0; px < PW; px++) {
+    const X = (PW / 2 - py) / S, Y = (px - PW / 2) / S;
+    const z = Y / (Math.sqrt(3) / 2), x = X - z / 2, y = -x - z;
+    let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
+    const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
+    if (dx > dy && dx > dz) rx = -ry - rz; else if (dy > dz) ry = -rx - rz; else rz = -rx - ry;
+    const i = (rz + C0) * N + rx + C0;
+    if (inside[i]) map[py * PW + px] = i;
+  }
+  return map;
+})();
+
+const rgba = (r, g, b) => (255 << 24) | (b << 16) | (g << 8) | r;
+const BG = rgba(6, 8, 12);
+// Ice by mass: thin ice is blue-grey, thick ice white. The ridges down each arm are thick ice.
+const ICE = new Uint32Array(256), GHOST = new Uint32Array(256), AIR = new Uint32Array(256), AIR_V = new Uint32Array(256);
+for (let k = 0; k < 256; k++) {
+  const t = k / 255, s = Math.pow(t, 0.8);
+  ICE[k] = rgba(96 + 159 * s | 0, 124 + 131 * s | 0, 178 + 77 * s | 0);
+  GHOST[k] = rgba(26 + 22 * s | 0, 34 + 26 * s | 0, 52 + 34 * s | 0);
+  AIR[k] = rgba(7 + 6 * t | 0, 12 + 16 * t | 0, 22 + 38 * t | 0);
+  // Contours at a quarter, half and three quarters of the sky's vapour, over a fill that is black
+  // where the ice has drunk the air dry.
+  const u = t * 1.15, isLine = [0.25, 0.5, 0.75].some(v => Math.abs(u - v) < 0.035);
+  AIR_V[k] = isLine ? rgba(120, 190, 245) : rgba(4 + 18 * u | 0, 6 + 46 * u | 0, 10 + 100 * u | 0);
+}
+const FRONT = rgba(233, 196, 106);
+
+function render() {
+  const airLut = showVapour ? AIR_V : AIR;
+  px32.fill(BG);
+  flakes.forEach((f, side) => {
+    const ox = side * (PW + GAP), { a, c, d, born } = f;
+    const airScale = 255 / (1.15 * f.rho);
+    const isRewound = hoverT !== null;
+    const front = isRewound ? Math.max(4, hoverT * 0.004) : 0;
+    for (let py = 0; py < PW; py++) {
+      const row = py * PW, out = py * stage.width + ox;
+      for (let px = 0; px < PW; px++) {
+        const i = pixSite[row + px];
+        if (i < 0) continue;
+        let col;
+        if (a[i]) {
+          const k = Math.min(255, Math.max(0, (c[i] - 0.6) * 110)) | 0;
+          if (!isRewound || born[i] <= hoverT - front) col = ICE[k];
+          else if (born[i] <= hoverT) col = FRONT;
+          else col = GHOST[k];
+        } else col = airLut[Math.min(255, d[i] * airScale) | 0];
+        px32[out + px] = col;
+      }
+    }
+  });
+  sctx.putImageData(img, 0, 0);
+}
+
+// ---------------------------------------------------------------- the weather pad
+const pad = document.getElementById('pad'), pctx = pad.getContext('2d');
+const PADS = 260, DPR = Math.min(2, window.devicePixelRatio || 1), PM = 16;
+pad.width = PADS * DPR; pad.height = PADS * DPR;
+const padX = beta => PM + (beta - B_MIN) / (B_MAX - B_MIN) * (PADS - 2 * PM);
+const padY = rho => PADS - PM - (rho - RHO_MIN) / (RHO_MAX - RHO_MIN) * (PADS - 2 * PM);
+const fromPad = (x, y) => [
+  B_MIN + Math.min(1, Math.max(0, (x - PM) / (PADS - 2 * PM))) * (B_MAX - B_MIN),
+  RHO_MIN + Math.min(1, Math.max(0, (PADS - PM - y) / (PADS - 2 * PM))) * (RHO_MAX - RHO_MIN),
+];
+
+function drawPad() {
+  pctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const g = pctx.createLinearGradient(0, PADS, 0, 0);
+  g.addColorStop(0, '#0b0f18'); g.addColorStop(1, '#15223a');
+  pctx.fillStyle = g; pctx.fillRect(0, 0, PADS, PADS);
+  // Region names come from growing a grid of crystals over the pad (see NOTES.md).
+  pctx.font = '11px ui-sans-serif, system-ui, sans-serif'; pctx.fillStyle = '#56607a';
+  pctx.textAlign = 'left';
+  pctx.fillText('ferns', PM + 4, PM + 12);
+  pctx.fillText('stars', PM + 4, PADS - PM - 6);
+  pctx.textAlign = 'center';
+  pctx.fillText('broad arms', PADS / 2, PM + 12);
+  pctx.fillText('sectored plates', PADS / 2, PADS - PM - 6);
+  pctx.textAlign = 'right';
+  pctx.fillText('plates', PADS - PM - 4, PADS / 2 + 4);
+  pctx.fillStyle = '#3c4458';
+  pctx.fillText('facets →', PADS - 4, PADS - 3);
+  pctx.save(); pctx.translate(11, PADS / 2); pctx.rotate(-Math.PI / 2); pctx.textAlign = 'center';
+  pctx.fillText('vapour →', 0, 0); pctx.restore();
+  // The path fallen through, from dim (long ago) to bright (now).
+  const end = isRewoundTo();
+  pctx.lineWidth = 2; pctx.lineCap = 'round';
+  for (let k = 1; k < trail.length; k++) {
+    const p = trail[k - 1], q = trail[k];
+    const isAfter = p.t >= end;
+    pctx.strokeStyle = isAfter ? 'rgba(120,140,180,0.18)' : `rgba(190,215,255,${0.25 + 0.6 * (q.t / Math.max(1, T))})`;
+    pctx.beginPath(); pctx.moveTo(padX(p.beta), padY(p.rho)); pctx.lineTo(padX(q.beta), padY(q.rho)); pctx.stroke();
+  }
+  dot(sky.beta, sky.rho, '#eef4ff', 6);
+  if (hoverT !== null) { const w = weatherAt(hoverT); dot(w.beta, w.rho, '#e9c46a', 5); }
+}
+const isRewoundTo = () => hoverT === null ? Infinity : hoverT;
+function dot(beta, rho, color, r) {
+  pctx.fillStyle = color; pctx.strokeStyle = '#06080c'; pctx.lineWidth = 2;
+  pctx.beginPath(); pctx.arc(padX(beta), padY(rho), r, 0, Math.PI * 2); pctx.fill(); pctx.stroke();
+}
+
+// ---------------------------------------------------------------- words
+const $ = id => document.getElementById(id);
+function updateButtons() {
+  for (const b of document.querySelectorAll('[data-sky]')) b.setAttribute('aria-pressed', String(sky.preset?.key === b.dataset.sky));
+  $('vapour').setAttribute('aria-pressed', String(showVapour));
+  $('pause').firstChild.textContent = paused ? 'grow ' : 'pause ';
+  $('caption').textContent = sky.preset ? sky.preset.say : 'Your own sky. Drag the dot, and the crystals take whatever weather you give them.';
+}
+function writeStatus() {
+  const [A, B] = flakes, isDone = !isGrowing(A) && !isGrowing(B);
+  $('status').innerHTML = `step <b>${T}</b> · vapour <b>${sky.rho.toFixed(2)}</b> · facets <b>${sky.beta.toFixed(2)}</b> · ` +
+    `radius <b>${A.radius.toFixed(0)}</b> and <b>${B.radius.toFixed(0)}</b>` + (isDone ? ' · <b>grown</b>' : paused ? ' · paused' : '');
+}
+function writeRead() {
+  if (hoverT === null) { $('read').textContent = ''; return; }
+  const w = weatherAt(hoverT), weather = `vapour ${w.rho.toFixed(2)} with facets ${w.beta.toFixed(2)}`;
+  $('read').textContent = (isHoverOnIce ? `This ice froze at step ${hoverT}, in ${weather}. ` : `The crystals at step ${hoverT}, as they left ${weather}. `) +
+    'Gold is the growing edge at that moment. Everything that came later is dimmed, on both crystals.';
+}
+
+// ---------------------------------------------------------------- input
+const skiesBar = $('skies');
+for (const s of SKIES) {
+  const b = document.createElement('button');
+  b.dataset.sky = s.key; b.innerHTML = `${s.name} <kbd>${s.key}</kbd>`;
+  b.onclick = () => newPair(s);
+  skiesBar.append(b);
+}
+
+function padPoint(e) {
+  const r = pad.getBoundingClientRect();
+  return [(e.clientX - r.left) * PADS / r.width, (e.clientY - r.top) * PADS / r.height];
+}
+let isDragging = false;
+pad.addEventListener('pointerdown', e => {
+  isDragging = true; pad.setPointerCapture(e.pointerId);
+  sky.preset = null; updateButtons();
+  setWeather(...fromPad(...padPoint(e)));
+  if (!flakes.some(isGrowing)) newPair(null);
+});
+pad.addEventListener('pointermove', e => {
+  if (isDragging) { setWeather(...fromPad(...padPoint(e))); return; }
+  // Hovering the path points back to the ice that grew then.
+  const [x, y] = padPoint(e);
+  // A point stands for the whole stretch spent in that weather, so show the crystal as it left it.
+  let best = -1, bestD = 64;
+  trail.forEach((p, k) => { const dd = (padX(p.beta) - x) ** 2 + (padY(p.rho) - y) ** 2; if (dd < bestD) { bestD = dd; best = k; } });
+  const isLast = best === trail.length - 1;
+  isHoverOnIce = false;
+  if (best < 0) hoverT = null;
+  else hoverT = isLast ? T : Math.max(trail[best].t, trail[best + 1].t - 1);
+});
+pad.addEventListener('pointerup', () => { isDragging = false; });
+pad.addEventListener('pointerleave', () => { if (!isDragging) hoverT = null; });
+
+stage.addEventListener('pointermove', e => {
+  const r = stage.getBoundingClientRect();
+  const x = (e.clientX - r.left) * stage.width / r.width, y = (e.clientY - r.top) * stage.height / r.height;
+  const side = x < PW + GAP / 2 ? 0 : 1, px = Math.round(x - side * (PW + GAP)), py = Math.round(y);
+  const isOnPanel = px >= 0 && px < PW && py >= 0 && py < PW;
+  const i = isOnPanel ? pixSite[py * PW + px] : -1;
+  isHoverOnIce = true;
+  hoverT = i >= 0 && flakes[side].a[i] ? flakes[side].born[i] : null;
+});
+stage.addEventListener('pointerleave', () => { hoverT = null; });
+
+function setPaused(p) { paused = p; updateButtons(); }
+function toggleVapour() { showVapour = !showVapour; updateButtons(); }
+$('vapour').onclick = toggleVapour;
+$('pause').onclick = () => setPaused(!paused);
+$('again').onclick = () => newPair();
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const s = SKIES.find(s => s.key === e.key);
+  if (s) newPair(s);
+  else if (e.key === 'v') toggleVapour();
+  else if (e.key === 'n') newPair();
+  else if (e.key === ' ') { e.preventDefault(); setPaused(!paused); }
+});
+
+// ---------------------------------------------------------------- loop
+const BUDGET = 11;             // ms of growing per frame
+function frame() {
+  if (!paused) {
+    const t0 = performance.now();
+    while (flakes.some(isGrowing) && performance.now() - t0 < BUDGET) step();
+  }
+  render(); drawPad(); writeStatus(); writeRead();
+  requestAnimationFrame(frame);
+}
+newPair(SKIES[3]);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
