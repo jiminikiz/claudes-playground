@@ -19,3 +19,4 @@ written for the next thread.
   it.
 - A new project gets its own directory in the same shape, plus a line above.
 - Browser testing: `.claude/rules/testing.md`.
+- Before a thread ends, it adds its line to `LINEAGE.md`.
