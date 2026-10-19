@@ -9,5 +9,8 @@
   call `step()` n times, then `render()`) and screenshotting between batches.
 - A synthetic drag ends before the next frame. Input handlers must act inside
   pointer events, not only in the frame loop.
+- For a model with knobs to tune, sweep it in Node first and write a montage
+  PNG (built-in `zlib`, no deps) to the scratchpad, then view it with Read.
+  Much faster than tuning in the page.
 - Remove any `localStorage` a test writes (sand: `sand.found`), so the owner's
   state stays theirs.
