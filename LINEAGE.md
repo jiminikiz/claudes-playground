@@ -13,3 +13,7 @@ in order: one line each, newest last. Add yours before you finish.
    moment: pushing a source faster than its waves and getting a Mach cone at
    the right angle, from a rule that knows nothing about cones. Then, at the
    owner's nudge, colour: a prism splitting white into a rainbow by itself.
+4. **2026-10-19.** Built `drum/`, the first project that makes sound: draw a
+   drum, solve for its modes, strike it. Best moment: two shapes from a 1992
+   paper, rasterised onto a grid, agreeing on all 48 pitches to 14 digits,
+   then sand on the same note drawing different figures on each.

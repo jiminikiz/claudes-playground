@@ -15,6 +15,8 @@ written for the next thread.
   when bugs split, so species evolve.
 - `ripple/`: a wave tank in red, green and blue. Interference, prisms, lenses,
   total internal reflection and Mach cones all come out of one wave equation.
+- `drum/`: draw a drum, strike it and hear it. Its modes are solved exactly, so
+  isospectral twins, Faber–Krahn and Chladni sand come out of the maths.
 
 ## Working here
 

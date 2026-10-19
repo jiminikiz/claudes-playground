@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hear the Drum</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141821;
+    --line: #262b38;
+    --text: #d9dce4;
+    --muted: #7d8496;
+    --focus: #e9c46a;
+    --a: #e9a23b;
+    --b: #3fc1b0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 900px); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #07090d; }
+  #stage { touch-action: none; image-rendering: pixelated; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .bar .spacer { flex: 1; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #3a4152; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .info { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .info b { color: var(--text); font-weight: 500; }
+  .drumA { color: var(--a); }
+  .drumB { color: var(--b); }
+  #caption { color: var(--text); }
+  #match { color: var(--focus); }
+  footer { color: #4d5363; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar">
+    <button data-tool="strike">strike <kbd>1</kbd></button>
+    <button data-tool="draw">draw <kbd>2</kbd></button>
+    <button data-tool="erase">erase <kbd>3</kbd></button>
+    <span class="spacer"></span>
+    <button id="sand">sand <kbd>s</kbd></button>
+    <button id="scene">scene <kbd>r</kbd></button>
+    <button id="clear">clear <kbd>c</kbd></button>
+  </div>
+  <div id="caption" class="info"></div>
+  <canvas id="stage"></canvas>
+  <div class="info"><span class="drumA" id="infoA"></span></div>
+  <div class="info"><span class="drumB" id="infoB"></span></div>
+  <canvas id="spectrum"></canvas>
+  <div class="info"><span id="hover">each line is one way the drum can ring: A's above, B's below; taller is louder in the last strike</span><span id="match"></span></div>
+  <div class="info">click a drum to strike it, and where you hit changes what you hear · click a spectrum line to hear that mode alone and see its shape · ← → step through modes · draw and erase reshape a drum; right-drag erases · [ ] brush</div>
+  <div class="info">sand on a ringing skin is thrown off the parts that move and settles on the still lines between them, as on a Chladni plate</div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun.</footer>
+</main>
+<script>
+// Each drum is a G×G grid of nodes; a node is skin or not. The skin is fixed at its rim:
+// any node that isn't skin holds still.
+const G = 64, GAP = 6, SW = 2 * G + GAP, S = 6;
+const K = 48;          // modes kept per drum
+const KRYLOV = 140;    // size of the search space they are drawn from
+const HZ = 1200;       // f = HZ·√λ, which puts a full-width circle near G2
+const SLOW = 80;       // the picture runs this many times slower than the sound
+const SEEN_RING = 3;   // and rings this many times longer, so a strike can be watched
+const SAND = 3000, JUMP = 2.5, STICK = 0.1; // grains, hop size in cells, motion below which sand rests
+const SPW = SW * S, SPH = 190, SPMID = 86, FMIN = 60, FMAX = 1920;
+
+// ---------------------------------------------------------------- modes
+// The modes are the eigenvectors of -Δ (5-point, spacing 1) on the skin's nodes. Nodes are
+// numbered row by row, so -Δ is banded and its Cholesky factor fits in the band.
+function factor(mask) {
+  const id = new Int32Array(G * G).fill(-1), at = [];
+  for (let i = 0; i < G * G; i++) if (mask[i]) { id[i] = at.length; at.push(i); }
+  const n = at.length, nb = [];
+  let b = 1;
+  for (let k = 0; k < n; k++) {
+    const p = at[k], x = p % G, list = [];
+    if (x > 0 && id[p - 1] >= 0) list.push(id[p - 1]);
+    if (x < G - 1 && id[p + 1] >= 0) list.push(id[p + 1]);
+    if (p >= G && id[p - G] >= 0) { list.push(id[p - G]); b = Math.max(b, k - id[p - G]); }
+    if (p < G * G - G && id[p + G] >= 0) list.push(id[p + G]);
+    nb.push(list);
+  }
+  const w = b + 1, L = new Float64Array(n * w); // L[i·w + i-j]
+  for (let i = 0; i < n; i++) {
+    for (let j = Math.max(0, i - b); j <= i; j++) {
+      let s = i === j ? 4 : (nb[i].includes(j) ? -1 : 0);
+      for (let k = Math.max(0, i - b); k < j; k++) s -= L[i * w + i - k] * L[j * w + j - k];
+      L[i * w + i - j] = i === j ? Math.sqrt(s) : s / L[j * w];
+    }
+  }
+  return { n, b, w, L, at, nb };
+}
+
+function solve(F, y, x) {
+  const { n, b, w, L } = F;
+  for (let i = 0; i < n; i++) {
+    let s = y[i];
+    for (let k = Math.max(0, i - b); k < i; k++) s -= L[i * w + i - k] * x[k];
+    x[i] = s / L[i * w];
+  }
+  for (let i = n - 1; i >= 0; i--) {
+    let s = x[i];
+    for (let k = i + 1, e = Math.min(n - 1, i + b); k <= e; k++) s -= L[k * w + k - i] * x[k];
+    x[i] = s / L[i * w];
+  }
+}
+
+function laplace(F, v, out) {
+  for (let k = 0; k < F.n; k++) { let s = 4 * v[k]; for (const j of F.nb[k]) s -= v[j]; out[k] = s; }
+}
+
+function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
+
+// Cyclic Jacobi on a dense symmetric m×m matrix. Eigenvalues end on the diagonal of S,
+// eigenvectors in the columns of V.
+function jacobi(S, m) {
+  const V = new Float64Array(m * m);
+  for (let i = 0; i < m; i++) V[i * m + i] = 1;
+  const rotate = (X, a, b, c, s, stride, step) => {
+    for (let k = 0; k < m; k++) {
+      const i = k * stride, xa = X[i + a * step], xb = X[i + b * step];
+      X[i + a * step] = c * xa - s * xb; X[i + b * step] = s * xa + c * xb;
+    }
+  };
+  for (let sweep = 0; sweep < 50; sweep++) {
+    let off = 0;
+    for (let p = 0; p < m; p++) for (let q = p + 1; q < m; q++) off += S[p * m + q] ** 2;
+    if (off < 1e-22) break;
+    for (let p = 0; p < m; p++) for (let q = p + 1; q < m; q++) {
+      const apq = S[p * m + q];
+      if (Math.abs(apq) < 1e-300) continue;
+      const th = (S[q * m + q] - S[p * m + p]) / (2 * apq);
+      const t = Math.sign(th || 1) / (Math.abs(th) + Math.sqrt(th * th + 1));
+      const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+      rotate(S, p, q, c, s, m, 1);  // columns
+      rotate(S, p, q, c, s, 1, m);  // rows
+      rotate(V, p, q, c, s, m, 1);
+    }
+  }
+  return V;
+}
+
+// Lowest K modes: a block Krylov space of (-Δ)⁻¹, then Rayleigh–Ritz. The block is 3 wide
+// so both modes of a symmetric pair turn up, not just one. Each φ has Σφ² = 1.
+function findModes(mask) {
+  const F = factor(mask), n = F.n;
+  if (n < 4) return { at: F.at, list: [] };
+  let seed = 12345;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 - 0.5; };
+  const V = [], m = Math.min(KRYLOV, n);
+  const keep = w => {
+    for (let pass = 0; pass < 2; pass++) for (const v of V) {
+      const c = dot(v, w);
+      for (let i = 0; i < n; i++) w[i] -= c * v[i];
+    }
+    const norm = Math.sqrt(dot(w, w));
+    if (norm < 1e-10) return;
+    for (let i = 0; i < n; i++) w[i] /= norm;
+    V.push(w);
+  };
+  for (let j = 0; j < 3; j++) keep(Float64Array.from({ length: n }, rand));
+  for (let j = 0; V.length < m && j < V.length; j++) { const w = new Float64Array(n); solve(F, V[j], w); keep(w); }
+  const mm = V.length, S = new Float64Array(mm * mm), Av = new Float64Array(n);
+  for (let j = 0; j < mm; j++) {
+    laplace(F, V[j], Av);
+    for (let i = 0; i <= j; i++) S[i * mm + j] = S[j * mm + i] = dot(V[i], Av);
+  }
+  const Q = jacobi(S, mm);
+  const order = [...Array(mm).keys()].sort((a, b) => S[a * mm + a] - S[b * mm + b]).slice(0, K);
+  const list = order.map(c => {
+    const phi = new Float64Array(n);
+    for (let j = 0; j < mm; j++) {
+      const q = Q[j * mm + c];
+      for (let i = 0; i < n; i++) phi[i] += q * V[j][i];
+    }
+    const norm = Math.sqrt(dot(phi, phi));
+    for (let i = 0; i < n; i++) phi[i] /= norm;
+    return { lam: S[c * mm + c], phi };
+  });
+  return { at: F.at, list };
+}
+
+// Faber–Krahn: of all drums with the same area, the circle sounds lowest. On a grid the
+// circle's λ₁·n creeps up with n, so this is the lower envelope of λ₁·n over discs drawn
+// at several centres and radii, against n.
+const DISC = [[26, 13.397], [33, 13.797], [43, 14.217], [55, 14.834], [70, 15.163], [90, 15.477],
+  [116, 15.770], [148, 16.084], [191, 16.262], [245, 16.483], [314, 16.723], [403, 16.877],
+  [518, 17.037], [665, 17.163], [854, 17.291], [1097, 17.398], [1408, 17.486], [1808, 17.570],
+  [2322, 17.640], [2981, 17.703]];
+function circleLam(n) {
+  if (n < DISC[0][0]) return null;
+  const last = DISC[DISC.length - 1];
+  if (n >= last[0]) return 18.168 / (1 + 1.45 / Math.sqrt(n)) / n; // πj₀₁², less the rim
+  let i = 0;
+  while (DISC[i + 1][0] <= n) i++;
+  const [n0, v0] = DISC[i], [n1, v1] = DISC[i + 1];
+  const t = Math.log(n / n0) / Math.log(n1 / n0);
+  return (v0 + t * (v1 - v0)) / n;
+}
+
+// ---------------------------------------------------------------- drums
+function makeDrum(name, ox, css) {
+  return {
+    name, ox, css, mask: new Uint8Array(G * G),
+    at: [], modes: [],     // modes: {f, lam, field (G×G), peak, rad}
+    hit: null,             // last strike: {t0, amp[], norm, loud[]}
+    sel: -1,               // mode being played on its own
+    u: new Float32Array(G * G), env: new Float32Array(G * G),
+    grains: null, tuning: false,
+  };
+}
+const drums = [makeDrum('A', 0, '#e9a23b'), makeDrum('B', G + GAP, '#3fc1b0')];
+
+function retune(d) {
+  const { at, list } = findModes(d.mask);
+  d.at = at;
+  d.modes = list.map(({ lam, phi }) => {
+    const field = new Float32Array(G * G);
+    let peak = 0, sum = 0;
+    at.forEach((p, i) => { field[p] = phi[i]; peak = Math.max(peak, Math.abs(phi[i])); sum += phi[i]; });
+    // How well a mode pushes air: modes whose halves cancel radiate weakly.
+    const rad = 0.15 + Math.abs(sum) / Math.sqrt(at.length);
+    return { lam, f: HZ * Math.sqrt(lam), field, peak, rad };
+  });
+  d.hit = null; d.sel = -1; d.tuning = false;
+  if (d.grains) scatter(d);
+  describe();
+}
+
+function scheduleRetune(d) {
+  d.tuning = true; d.modes = []; d.hit = null; d.sel = -1;
+  describe();
+  setTimeout(() => retune(d), 20); // let "tuning" paint first
+}
+
+// Value of a G×G node field at a point in cell space; node (x, y) sits at (x+½, y+½).
+function sample(field, x, y) {
+  const fx = x - 0.5, fy = y - 0.5, x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+  const at = (i, j) => (i < 0 || j < 0 || i >= G || j >= G) ? 0 : field[j * G + i];
+  return (1 - ty) * ((1 - tx) * at(x0, y0) + tx * at(x0 + 1, y0)) + ty * ((1 - tx) * at(x0, y0 + 1) + tx * at(x0 + 1, y0 + 1));
+}
+
+// Decay time of a mode in seconds of sound; high modes die first.
+const ringTime = f => 1.4 * Math.sqrt(100 / f);
+
+function strike(d, x, y) {
+  const isSkin = d.modes.length > 0 && d.mask[Math.floor(y) * G + Math.floor(x)] === 1;
+  if (!isSkin) return;
+  d.sel = -1;
+  const amp = d.modes.map(m => sample(m.field, x, y));
+  let norm = 0;
+  for (const p of d.at) {
+    let s = 0;
+    d.modes.forEach((m, k) => { s += (amp[k] * m.field[p]) ** 2; });
+    norm = Math.max(norm, s);
+  }
+  const loudness = d.modes.map((m, k) => Math.abs(amp[k]) * m.rad);
+  const top = Math.max(...loudness) || 1;
+  d.hit = { t0: performance.now() / 1000, amp, norm: Math.sqrt(norm) || 1, loud: loudness.map(v => v / top) };
+  playStrike(d, amp);
+}
+
+function select(d, k) {
+  if (!d.modes[k]) return;
+  d.sel = k; d.hit = null; active = d;
+  playTone(d.modes[k].f);
+  describe();
+}
+
+// ---------------------------------------------------------------- sound
+let ac = null;
+function audio() {
+  ac ||= new AudioContext();
+  if (ac.state === 'suspended') ac.resume();
+  return ac;
+}
+
+// A strike is a sharp push at one point: each mode starts in proportion to its shape
+// there, as a sine (so no click), and rings down at its own rate.
+function playStrike(d, amp) {
+  const ctx = audio(), sr = ctx.sampleRate, len = Math.floor(sr * 3.5);
+  const buf = ctx.createBuffer(1, len, sr), out = buf.getChannelData(0);
+  const ref = d.modes[0].peak * d.modes[0].rad;
+  d.modes.forEach((m, k) => {
+    const a = 0.3 * amp[k] * m.rad / ref;
+    if (Math.abs(a) < 1e-4 || m.f > sr / 2) return;
+    const w = 2 * Math.PI * m.f / sr, c = Math.cos(w), s = Math.sin(w), r = Math.exp(-1 / (ringTime(m.f) * sr));
+    let re = 1, im = 0;
+    for (let i = 0; i < len; i++) {
+      out[i] += a * im;
+      const nre = (re * c - im * s) * r;
+      im = (re * s + im * c) * r; re = nre;
+    }
+  });
+  for (let i = 0; i < len; i++) out[i] = Math.tanh(out[i]);
+  const src = ctx.createBufferSource();
+  src.buffer = buf; src.connect(ctx.destination); src.start();
+}
+
+function playTone(f) {
+  const ctx = audio(), t = ctx.currentTime, osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.frequency.value = f;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.18, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(t); osc.stop(t + 2.3);
+}
+
+const NOTES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+function noteOf(f) {
+  const midi = 69 + 12 * Math.log2(f / 440), near = Math.round(midi), cents = Math.round(100 * (midi - near));
+  const sign = cents > 0 ? '+' : cents < 0 ? '−' : '±';
+  return `${NOTES[(near % 12 + 12) % 12]}${Math.floor(near / 12) - 1} ${sign}${Math.abs(cents)}¢`;
+}
+
+// ---------------------------------------------------------------- motion and sand
+// u is the skin's height now; env is how hard each point is shaking, 0 to about 1.
+function field(d, t) {
+  const { u, env, modes, at } = d;
+  u.fill(0); env.fill(0);
+  if (d.sel >= 0) {
+    const m = modes[d.sel], c = Math.cos(2 * Math.PI * 1.1 * t);
+    for (const p of at) { const v = m.field[p] / m.peak; u[p] = v * c; env[p] = Math.abs(v); }
+    return;
+  }
+  if (!d.hit) return;
+  const s = t - d.hit.t0, live = [];
+  modes.forEach((m, k) => {
+    const a = d.hit.amp[k] * Math.exp(-s / (SEEN_RING * ringTime(m.f))) / d.hit.norm;
+    if (Math.abs(a) * m.peak > 1e-3) live.push([m.field, a, 2 * Math.PI * m.f / SLOW]);
+  });
+  if (!live.length) { d.hit.done = true; return; }
+  for (const p of at) {
+    let h = 0, e = 0;
+    for (const [fld, a, w] of live) { const v = a * fld[p]; h += v * Math.sin(w * s); e += v * v; }
+    u[p] = h; env[p] = Math.sqrt(e);
+  }
+}
+
+function scatter(d) {
+  d.grains = new Float32Array(2 * SAND);
+  if (!d.at.length) return;
+  for (let g = 0; g < SAND; g++) {
+    const p = d.at[Math.floor(Math.random() * d.at.length)];
+    d.grains[2 * g] = p % G + Math.random();
+    d.grains[2 * g + 1] = Math.floor(p / G) + Math.random();
+  }
+}
+
+// A grain hops where the skin shakes harder than gravity holds it, and lands anywhere on
+// the skin. Where the skin is still it stays, so grains collect on the nodal lines.
+function stepSand(d) {
+  const gr = d.grains;
+  if (!gr || !d.at.length) return;
+  for (let g = 0; g < gr.length; g += 2) {
+    const x = gr[g], y = gr[g + 1], e = sample(d.env, x, y);
+    if (e <= STICK) continue;
+    const hop = JUMP * (e - STICK) / (1 - STICK) * Math.random(), th = Math.random() * 2 * Math.PI;
+    const nx = x + hop * Math.cos(th), ny = y + hop * Math.sin(th);
+    const isOnSkin = nx >= 0 && ny >= 0 && nx < G && ny < G && d.mask[Math.floor(ny) * G + Math.floor(nx)] === 1;
+    if (isOnSkin) { gr[g] = nx; gr[g + 1] = ny; }
+  }
+}
+
+// ---------------------------------------------------------------- drawing
+const stage = document.getElementById('stage'), sctx = stage.getContext('2d');
+const spec = document.getElementById('spectrum'), pctx = spec.getContext('2d');
+stage.width = SW * S; stage.height = G * S;
+spec.width = SPW; spec.height = SPH;
+const small = document.createElement('canvas'); small.width = SW; small.height = G;
+const smctx = small.getContext('2d'), img = smctx.createImageData(SW, G);
+
+const BG = [11, 13, 18], SKIN = [74, 62, 46], CREST = [255, 196, 110], TROUGH = [79, 134, 217];
+
+let tool = 'strike', sandOn = false, brush = 3, hover = null, active = drums[0], hoverLine = null;
+
+function render() {
+  const px = img.data;
+  for (let y = 0; y < G; y++) for (let x = 0; x < SW; x++) {
+    const o = 4 * (y * SW + x);
+    px[o] = BG[0]; px[o + 1] = BG[1]; px[o + 2] = BG[2]; px[o + 3] = 255;
+  }
+  for (const d of drums) for (let p = 0; p < G * G; p++) {
+    if (!d.mask[p]) continue;
+    const o = 4 * ((p / G | 0) * SW + d.ox + p % G), v = Math.max(-1, Math.min(1, d.u[p]));
+    const to = v > 0 ? CREST : TROUGH, t = Math.abs(v), dim = d.tuning ? 0.6 : 1;
+    for (let c = 0; c < 3; c++) px[o + c] = (SKIN[c] + (to[c] - SKIN[c]) * t) * dim;
+  }
+  smctx.putImageData(img, 0, 0);
+  sctx.imageSmoothingEnabled = false;
+  sctx.drawImage(small, 0, 0, SW * S, G * S);
+  sctx.fillStyle = '#f3e6c4';
+  for (const d of drums) {
+    if (!d.grains) continue;
+    for (let g = 0; g < d.grains.length; g += 2) sctx.fillRect((d.ox + d.grains[g]) * S - 1, d.grains[g + 1] * S - 1, 2, 2);
+  }
+  sctx.font = '600 15px ui-sans-serif, system-ui, sans-serif';
+  for (const d of drums) {
+    sctx.fillStyle = d.css;
+    sctx.fillText(d.name, d.ox * S + 8, 20);
+    if (d.tuning) { sctx.fillStyle = '#d9dce4'; sctx.fillText('tuning…', d.ox * S + 8, G * S - 12); }
+  }
+  if (hover && tool !== 'strike') {
+    sctx.strokeStyle = tool === 'erase' ? '#ff8a7a' : '#e9c46a';
+    sctx.beginPath(); sctx.arc((hover.d.ox + hover.x) * S, hover.y * S, brush * S, 0, 2 * Math.PI); sctx.stroke();
+  }
+}
+
+const fx = f => 30 + Math.log(f / FMIN) / Math.log(FMAX / FMIN) * (SPW - 60);
+
+// The cents within which two lines count as the same pitch.
+const SAME = 0.5;
+function matches() {
+  const [a, b] = drums;
+  let n = 0;
+  for (const m of a.modes) if (b.modes.some(q => Math.abs(1200 * Math.log2(m.f / q.f)) < SAME)) n++;
+  return n;
+}
+
+function drawSpectrum() {
+  const mid = SPMID;
+  pctx.fillStyle = '#07090d'; pctx.fillRect(0, 0, SPW, SPH);
+  pctx.font = '11px ui-monospace, monospace'; pctx.textAlign = 'center';
+  for (let f = 100; f <= 1600; f *= 2) {
+    pctx.fillStyle = '#1a1f2a'; pctx.fillRect(fx(f), 0, 1, SPH);
+    pctx.fillStyle = '#4d5363'; pctx.fillText(f + ' Hz', fx(f), SPH - 5);
+  }
+  pctx.fillStyle = '#262b38'; pctx.fillRect(30, mid - 1, SPW - 60, 1);
+  const [a, b] = drums;
+  for (const m of a.modes) {
+    const isShared = b.modes.some(q => Math.abs(1200 * Math.log2(m.f / q.f)) < SAME);
+    if (isShared) { pctx.fillStyle = 'rgba(233,196,106,0.5)'; pctx.fillRect(Math.round(fx(m.f)), mid - 12, 1, 24); }
+  }
+  drums.forEach((d, side) => {
+    const dir = side ? 1 : -1;
+    d.modes.forEach((m, k) => {
+      const loud = d.hit ? d.hit.loud[k] : 0, h = 14 + 52 * loud, x = Math.round(fx(m.f));
+      const isPicked = d.sel === k || (hoverLine && hoverLine.d === d && hoverLine.k === k);
+      pctx.globalAlpha = isPicked ? 1 : 0.35 + 0.65 * loud;
+      pctx.fillStyle = isPicked ? '#ffffff' : d.css;
+      pctx.fillRect(x - (isPicked ? 1 : 0), dir > 0 ? mid + 12 : mid - 12 - h, isPicked ? 3 : 2, h);
+    });
+    pctx.globalAlpha = 1;
+    pctx.fillStyle = d.css; pctx.textAlign = 'left'; pctx.font = '600 13px ui-sans-serif, system-ui, sans-serif';
+    pctx.fillText(d.name, 8, side ? mid + 26 : 18);
+  });
+}
+
+function describe() {
+  drums.forEach(d => {
+    const el = document.getElementById('info' + d.name), n = d.at.length;
+    if (d.tuning) { el.textContent = `${d.name}: tuning…`; return; }
+    if (!d.modes.length) { el.textContent = `${d.name}: no drum yet; draw one`; return; }
+    const f1 = d.modes[0].f, cl = circleLam(n);
+    let text = `${d.name}: ${n} cells · lowest note ${f1.toFixed(1)} Hz (${noteOf(f1)})`;
+    if (cl) {
+      const cents = Math.round(1200 * Math.log2(f1 / (HZ * Math.sqrt(cl))));
+      text += cents > 0 ? ` · ${cents}¢ above a circle of the same area` : ' · as low as a drum this size can go';
+    }
+    if (d.sel >= 0) text += ` · playing mode ${d.sel + 1}: ${d.modes[d.sel].f.toFixed(1)} Hz`;
+    el.textContent = text;
+  });
+  const both = drums.every(d => d.modes.length);
+  document.getElementById('match').textContent = both ? `lines in common: ${matches()} of ${K}` : '';
+}
+
+// ---------------------------------------------------------------- shapes and scenes
+function polygon(d, pts) {
+  for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+    let inside = false, onRim = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      const cross = (xj - xi) * (y - yi) - (yj - yi) * (x - xi);
+      const isBetween = x >= Math.min(xi, xj) && x <= Math.max(xi, xj) && y >= Math.min(yi, yj) && y <= Math.max(yi, yj);
+      if (Math.abs(cross) < 1e-9 && isBetween) onRim = true;
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    if (inside && !onRim) d.mask[y * G + x] = 1;
+  }
+}
+
+function disc(d, r) {
+  for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) if ((x - 31.5) ** 2 + (y - 31.5) ** 2 < r * r) d.mask[y * G + x] = 1;
+}
+
+function square(d, side) {
+  const o = Math.floor((G - side) / 2);
+  for (let y = o; y < o + side; y++) for (let x = o; x < o + side; x++) d.mask[y * G + x] = 1;
+}
+
+// Gordon, Webb and Wolpert's pair (1992): each is seven copies of a half-square, glued two
+// different ways. Vertices as in COMSOL's isospectral drums model, scaled by 10.
+const TWIN_A = [[-3, -3], [-3, -1], [1, 3], [1, 1], [3, 1], [1, -1], [-1, -1], [-1, -3]];
+const TWIN_B = [[-3, 1], [1, 1], [1, 3], [3, 1], [1, -1], [-1, -1], [-1, -3], [-3, -1]];
+const place = pts => pts.map(([x, y]) => [(x + 3) * 10 + 2, (3 - y) * 10 + 2]);
+
+const SCENES = [
+  { name: 'twins', caption: 'Two drums of different shapes that sound exactly alike: strike both and every line of the spectrum matches. Gordon, Webb and Wolpert, 1992.',
+    build([a, b]) { polygon(a, place(TWIN_A)); polygon(b, place(TWIN_B)); } },
+  { name: 'circle and square', caption: 'The same area. No drum of a given area sounds lower than the circle (Faber–Krahn). Reshape B and try to beat it.',
+    build([a, b]) { disc(a, 22); square(b, Math.round(Math.sqrt(a.mask.reduce((s, v) => s + v, 0)))); } },
+  { name: 'half the skin', caption: 'B has half the area of A, and sounds √2 higher in pitch: a tritone. Every line moves up by the same ratio.',
+    build([a, b]) { disc(a, 28); disc(b, 28 / Math.SQRT2); } },
+  { name: 'blank', caption: 'Draw two drums.', build() {} },
+];
+let sceneIndex = 0;
+
+function scene(j) {
+  sceneIndex = j;
+  const s = SCENES[j];
+  document.getElementById('caption').textContent = s.caption;
+  for (const d of drums) { d.mask.fill(0); d.at = []; }
+  s.build(drums);
+  drums.forEach(scheduleRetune);
+}
+
+// ---------------------------------------------------------------- input
+function where(e) {
+  const r = stage.getBoundingClientRect();
+  const cx = (e.clientX - r.left) / r.width * SW, cy = (e.clientY - r.top) / r.height * G;
+  const d = cx < G ? drums[0] : cx >= G + GAP ? drums[1] : null;
+  return d && { d, x: cx - d.ox, y: cy };
+}
+
+function paint(d, x, y, on) {
+  const r = brush;
+  for (let j = Math.floor(y - r); j <= y + r; j++) for (let i = Math.floor(x - r); i <= x + r; i++) {
+    const isInside = i >= 1 && j >= 1 && i < G - 1 && j < G - 1 && (i + 0.5 - x) ** 2 + (j + 0.5 - y) ** 2 <= r * r;
+    if (isInside) d.mask[j * G + i] = on ? 1 : 0;
+  }
+}
+
+let stroke = null; // {d, on, x, y}
+stage.addEventListener('contextmenu', e => e.preventDefault());
+stage.addEventListener('pointerdown', e => {
+  const w = where(e);
+  if (!w) return;
+  active = w.d;
+  const isErase = e.button === 2 || tool === 'erase';
+  if (tool === 'strike' && !isErase) { strike(w.d, w.x, w.y); return; }
+  stage.setPointerCapture(e.pointerId);
+  stroke = { d: w.d, on: !isErase, x: w.x, y: w.y };
+  w.d.modes = []; w.d.hit = null; w.d.sel = -1; w.d.u.fill(0);
+  paint(w.d, w.x, w.y, stroke.on);
+});
+stage.addEventListener('pointermove', e => {
+  hover = where(e);
+  if (!stroke) return;
+  const r = stage.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * SW - stroke.d.ox, y = (e.clientY - r.top) / r.height * G;
+  const steps = Math.ceil(Math.hypot(x - stroke.x, y - stroke.y) / 0.5) || 1;
+  for (let i = 1; i <= steps; i++) paint(stroke.d, stroke.x + (x - stroke.x) * i / steps, stroke.y + (y - stroke.y) * i / steps, stroke.on);
+  stroke.x = x; stroke.y = y;
+});
+const endStroke = () => { if (stroke) { scheduleRetune(stroke.d); stroke = null; } };
+stage.addEventListener('pointerup', endStroke);
+stage.addEventListener('pointercancel', endStroke);
+stage.addEventListener('pointerleave', () => { hover = null; });
+
+function lineAt(e) {
+  const r = spec.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * SPW, y = (e.clientY - r.top) / r.height * SPH;
+  const d = y < SPMID ? drums[0] : drums[1];
+  let best = null, bestDx = 6;
+  d.modes.forEach((m, k) => { const dx = Math.abs(fx(m.f) - x); if (dx < bestDx) { bestDx = dx; best = { d, k }; } });
+  return best;
+}
+spec.addEventListener('pointermove', e => {
+  hoverLine = lineAt(e);
+  const el = document.getElementById('hover');
+  if (!hoverLine) return;
+  const m = hoverLine.d.modes[hoverLine.k];
+  el.textContent = `${hoverLine.d.name} mode ${hoverLine.k + 1}: ${m.f.toFixed(1)} Hz, ${noteOf(m.f)}, ${(m.f / hoverLine.d.modes[0].f).toFixed(3)}× the lowest`;
+});
+spec.addEventListener('pointerleave', () => { hoverLine = null; });
+spec.addEventListener('pointerdown', e => { const l = lineAt(e); if (l) select(l.d, l.k); });
+
+function setTool(t) {
+  tool = t;
+  document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t));
+  stage.style.cursor = t === 'strike' ? 'crosshair' : 'none';
+}
+function toggleSand() {
+  sandOn = !sandOn;
+  document.getElementById('sand').setAttribute('aria-pressed', sandOn);
+  for (const d of drums) if (sandOn) scatter(d); else d.grains = null;
+}
+function clearDrum(d) {
+  for (const x of d ? [d] : drums) { x.mask.fill(0); x.at = []; x.modes = []; x.hit = null; x.sel = -1; x.grains &&= new Float32Array(0); x.u.fill(0); }
+  describe();
+}
+function stepMode(d, by) {
+  if (!d.modes.length) return;
+  select(d, d.sel < 0 ? 0 : (d.sel + by + d.modes.length) % d.modes.length);
+}
+
+document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+document.getElementById('sand').addEventListener('click', toggleSand);
+document.getElementById('scene').addEventListener('click', () => scene((sceneIndex + 1) % SCENES.length));
+document.getElementById('clear').addEventListener('click', () => clearDrum(null));
+addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const d = hover ? hover.d : active;
+  const keys = {
+    1: () => setTool('strike'), 2: () => setTool('draw'), 3: () => setTool('erase'),
+    s: toggleSand, r: () => scene((sceneIndex + 1) % SCENES.length), c: () => clearDrum(hover && hover.d),
+    '[': () => { brush = Math.max(1, brush - 1); }, ']': () => { brush = Math.min(12, brush + 1); },
+    ArrowRight: () => stepMode(d, 1), '.': () => stepMode(d, 1),
+    ArrowLeft: () => stepMode(d, -1), ',': () => stepMode(d, -1),
+    Escape: () => { for (const x of drums) x.sel = -1; describe(); },
+  };
+  if (keys[e.key]) { keys[e.key](); e.preventDefault(); }
+});
+
+function frame() {
+  const t = performance.now() / 1000;
+  for (const d of drums) { field(d, t); if (sandOn) stepSand(d); }
+  render(); drawSpectrum();
+  requestAnimationFrame(frame);
+}
+
+setTool('strike');
+scene(0);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
