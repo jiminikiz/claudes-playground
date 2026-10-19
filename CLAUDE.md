@@ -11,6 +11,8 @@ written for the next thread.
 
 - `sand/`: falling-sand toy. Materials react, and four can only be discovered.
 - `forth/`: a small Forth REPL with a 64×64 pixel screen.
+- `terrarium/`: bugs with Forth brains in a soil-and-rain world. Brains mutate
+  when bugs split, so species evolve.
 
 ## Working here
 

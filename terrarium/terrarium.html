@@ -1,0 +1,1251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terrarium</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141821;
+    --line: #262b38;
+    --text: #d9dce4;
+    --muted: #7d8496;
+    --focus: #e9c46a;
+    --add: #7fd17f;
+    --del: #e07a7a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 1340px); display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; }
+  @media (max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .stage { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #0d0f14; }
+  #c { display: block; width: 100%; height: auto; image-rendering: pixelated; touch-action: none; cursor: crosshair; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .bar .spacer { flex: 1; }
+  button, select {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  select { padding: 4px 6px; }
+  button:hover { border-color: #3a4152; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; display: inline-block; }
+  .sw.erase { background: repeating-linear-gradient(45deg, #555 0 2px, transparent 2px 4px); outline: 1px solid #555; }
+  .sw.look { border: 2px solid var(--text); border-radius: 50%; }
+  .info { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .info b { color: var(--text); font-weight: 500; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  @media (max-width: 700px) { .two { grid-template-columns: minmax(0, 1fr); } }
+  h2 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 8px; text-transform: uppercase; letter-spacing: .06em; display: flex; gap: 8px; align-items: center; }
+  h2 .spacer { flex: 1; }
+  textarea {
+    width: 100%; min-height: 230px; resize: vertical; background: #0d0f14; color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px;
+    font: 12.5px/1.5 ui-monospace, "JetBrains Mono", Menlo, monospace; tab-size: 2;
+  }
+  textarea:focus { outline: none; border-color: #3a4152; }
+  .status { font: 12px ui-monospace, monospace; color: var(--muted); margin: 6px 0; min-height: 1.4em; }
+  .status.err { color: var(--del); }
+  #species { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+  .row { display: flex; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 5px; cursor: pointer; }
+  .row:hover { background: #1b2030; }
+  .row.sel { background: #222838; }
+  .row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .n { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .row .bar-n { height: 4px; border-radius: 2px; opacity: .8; }
+  #chart { width: 100%; height: 110px; display: block; }
+  #log { font-size: 12.5px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow: auto; margin-top: 8px; }
+  #log b { color: var(--text); font-weight: 500; }
+  #log .t { font-variant-numeric: tabular-nums; color: #4d5363; margin-right: 4px; }
+  code, .code { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 12.5px; }
+  #log code { color: var(--text); }
+  pre.brain { margin: 6px 0 0; padding: 8px; background: #0d0f14; border: 1px solid var(--line); border-radius: 6px; white-space: pre; font: 12.5px/1.5 ui-monospace, "JetBrains Mono", Menlo, monospace; max-height: 300px; overflow: auto; }
+  pre.brain .add { color: var(--add); background: #7fd17f1a; border-radius: 3px; }
+  pre.brain .del { color: var(--del); text-decoration: line-through; opacity: .75; }
+  pre.brain .cm { color: var(--muted); }
+  .stats { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 13px; color: var(--muted); }
+  .stats b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .meter { height: 6px; background: #0d0f14; border-radius: 3px; overflow: hidden; align-self: center; }
+  .meter i { display: block; height: 100%; background: var(--focus); }
+  .muted { color: var(--muted); font-size: 13px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  .help { color: var(--muted); font-size: 13px; }
+  .help p { margin: 8px 0; }
+  .help code { color: var(--text); }
+  footer { color: #4d5363; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="col">
+    <div class="bar" id="tools"></div>
+    <div class="stage"><canvas id="c"></canvas></div>
+    <div class="bar">
+      <div class="info">
+        <span>under cursor: <b id="under">air</b></span>
+        <span>tick <b id="tick">0</b></span>
+        <span>bugs <b id="nbugs">0</b></span>
+        <span>plants <b id="nplants">0</b></span>
+        <span>species <b id="nspecies">0</b></span>
+      </div>
+      <span class="spacer"></span>
+      <select id="rain" title="rain">
+        <option value="0">no rain</option>
+        <option value="0.4" selected>light rain</option>
+        <option value="1.5">heavy rain</option>
+      </select>
+      <select id="speed" title="speed">
+        <option value="0.5">½×</option>
+        <option value="1">1×</option>
+        <option value="3" selected>3×</option>
+        <option value="8">8×</option>
+      </select>
+      <button id="pause">pause <kbd>space</kbd></button>
+      <button id="stepb">step <kbd>.</kbd></button>
+      <button id="scene">new world <kbd>r</kbd></button>
+    </div>
+    <div class="info">drag to paint · right-drag to erase · scroll or [ ] for brush size · the bug tool places bugs running the brain on the right</div>
+    <div class="two">
+      <div class="panel">
+        <h2>species alive<span class="spacer"></span><span id="extinct" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+        <div id="species"></div>
+      </div>
+      <div class="panel">
+        <h2>population</h2>
+        <canvas id="chart"></canvas>
+        <div class="info" id="legend"></div>
+        <div id="log"></div>
+      </div>
+    </div>
+    <footer>Made by Claude in October 2026. The world is the sand toy's cousin; the brains are Little Forth's.</footer>
+  </div>
+
+  <div class="col">
+    <div class="panel">
+      <h2>brain for new bugs<span class="spacer"></span>
+        <select id="preset"></select>
+      </h2>
+      <textarea id="src" spellcheck="false" wrap="off"></textarea>
+      <div class="status" id="status"></div>
+      <div class="bar">
+        <button id="release">release 6</button>
+        <button id="usebug">bug tool <kbd>7</kbd></button>
+      </div>
+    </div>
+    <div class="panel" id="inspect">
+      <h2>inspector</h2>
+      <div class="muted">Pick the look tool (<code>8</code>) and click a bug, or click a species.</div>
+    </div>
+    <details class="panel" open>
+      <summary>how a bug thinks</summary>
+      <div class="help">
+        <p>Every tick a bug runs <code>brain</code> from the top with an empty stack. The first action word ends its turn. So does running out of 200 steps. Popping an empty stack gives 0, so no program can crash.</p>
+        <p><b>Actions</b> <code>walk</code> (steps up one-cell ledges) <code>turn</code> <code>climb</code> (up a wall, and over its lip) <code>dig</code> (the cell ahead) <code>burrow</code> (the cell below) <code>put</code> (what it carries, behind it) <code>eat</code> (a plant or seed it touches, else whatever is ahead) <code>split</code> (needs 100 energy and costs 40; the child gets half the rest) <code>rest</code></p>
+        <p><b>Senses</b> <code>ahead below above behind</code> push what's there. <code>n look</code> pushes the first thing that isn't air within n cells ahead. <code>sniff</code> is plants ahead minus plants behind. <code>crowd</code> counts bugs touching it.</p>
+        <p><b>Self</b> <code>energy age load dir</code>, <code>n rnd</code>, and <code>@ !</code> over four cells of memory that last between ticks.</p>
+        <p><b>Materials</b> <code>air dirt sand stone water plant root seed bug husk</code>. A plant on dirt is a <code>root</code>: bugs can't eat it, and it regrows what they do eat.</p>
+        <p><b>Forth</b> <code>: ; if else then begin until again while repeat exit</code>, <code>+ - * / mod max min and or negate abs 1+ 1- 0= = &lt;&gt; &lt; &gt;</code>, <code>dup drop swap over rot nip</code>. Comments: <code>\</code> and <code>( )</code>.</p>
+        <p>A bug burns 1 energy every 4 ticks, more under water. A plant is worth 20, a seed 10, a caught bug a third of what it had, and a catch works one time in four. Children copy the parent's brain, and one in eight gets a mutation: a word swapped, a number nudged, a word added or lost, or a whole new <code>if</code> rule.</p>
+      </div>
+    </details>
+  </div>
+</main>
+<script>
+const W = 240, H = 120, N = W * H;
+const cv = document.getElementById('c');
+cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const img = ctx.createImageData(W, H);
+const buf = new Uint32Array(img.data.buffer);
+
+// Material codes are also what a brain's senses push.
+const AIR = 0, DIRT = 1, SAND = 2, STONE = 3, WATER = 4, PLANT = 5, SEED = 6, BUG = 7, HUSK = 8, ROOT = 9;
+const MAT_NAMES = ['air', 'dirt', 'sand', 'stone', 'water', 'plant', 'seed', 'bug', 'husk', 'root'];
+
+const type = new Uint8Array(N);
+const life = new Uint16Array(N);  // dirt, plant: water held; seed, husk: ticks left
+const shade = new Uint8Array(N);
+const clock = new Uint8Array(N);
+const who = new Int32Array(N);    // bug cell: index into bugs + 1
+
+const MAX_BUGS = 800, MAX_AGE = 6000, HUNGER = 4, MAX_ENERGY = 400;
+const BUDGET = 200, MUTATION = 0.125, CATCH = 0.25, HOLD = 6, SPLIT_COST = 40;
+const PLANT_FOOD = 20, SEED_FOOD = 10, SOIL_CAP = 12;
+
+let tick = 0, t8 = 0;
+let rain = 0.4;
+const EVAP = 0.0004;
+
+const rand = Math.random;
+const ri = n => (rand() * n) | 0;
+
+function at(x, y) { return (x < 0 || x >= W || y < 0 || y >= H) ? STONE : type[y * W + x]; }
+const isOpen = t => t === AIR || t === WATER;
+
+let bugs = [];
+
+function swap(i, j) {
+  const ti = type[i], li = life[i], si = shade[i], wi = who[i];
+  type[i] = type[j]; life[i] = life[j]; shade[i] = shade[j]; who[i] = who[j];
+  type[j] = ti; life[j] = li; shade[j] = si; who[j] = wi;
+  clock[i] = clock[j] = t8;
+  if (who[i]) bugs[who[i] - 1].i = i;
+  if (who[j]) bugs[who[j] - 1].i = j;
+}
+
+function put(i, t, l = 0) {
+  type[i] = t; life[i] = l; shade[i] = ri(4); who[i] = 0; clock[i] = t8;
+}
+
+// ---------- cells ----------
+
+function powder(i, x, y) {
+  if (y === H - 1) return false;
+  const b = i + W, tb = type[b];
+  if (tb === AIR || (tb === WATER && rand() < 0.5)) { swap(i, b); return true; }
+  if (tb === WATER) return false;
+  const d = rand() < 0.5 ? -1 : 1;
+  if (x + d >= 0 && x + d < W && isOpen(type[b + d]) && isOpen(type[i + d])) { swap(i, b + d); return true; }
+  if (x - d >= 0 && x - d < W && isOpen(type[b - d]) && isOpen(type[i - d])) { swap(i, b - d); return true; }
+  return false;
+}
+
+function water(i, x, y) {
+  if (y > 0 && type[i - W] === AIR && rand() < EVAP) { put(i, AIR); return; }
+  const isSoaking = y < H - 1 && type[i + W] === DIRT && life[i + W] < SOIL_CAP - 2 && rand() < 0.03;
+  if (isSoaking) { life[i + W] += 3; put(i, AIR); return; }
+  const d = rand() < 0.5 ? -1 : 1;
+  if (y < H - 1) {
+    const b = i + W;
+    if (type[b] === AIR) { swap(i, b); return; }
+    if (x + d >= 0 && x + d < W && type[b + d] === AIR) { swap(i, b + d); return; }
+    if (x - d >= 0 && x - d < W && type[b - d] === AIR) { swap(i, b - d); return; }
+  }
+  if (x + d >= 0 && x + d < W && type[i + d] === AIR) { swap(i, i + d); return; }
+  if (x - d >= 0 && x - d < W && type[i - d] === AIR) swap(i, i - d);
+}
+
+// Neighbour k of 4 (up, right, down, left), or -1 off the grid.
+function nbr4(i, x, y, k) {
+  if (k === 0) return y > 0 ? i - W : -1;
+  if (k === 1) return x < W - 1 ? i + 1 : -1;
+  if (k === 2) return y < H - 1 ? i + W : -1;
+  return x > 0 ? i - 1 : -1;
+}
+
+function plantsAround(x, y) {
+  let n = 0;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && isGreen(at(x + dx, y + dy))) n++;
+  return n;
+}
+
+const GROW = [[0, -1], [0, -1], [0, -1], [-1, -1], [1, -1], [-1, 0], [1, 0]];
+
+// Roots and stems share one rule. A stem that sits on dirt becomes a root,
+// which bugs can't eat, so a grazed plant grows back. Only roots drink;
+// stems live on what their neighbours pass along, so a cut-off canopy dries
+// out and withers.
+const isGreen = t => t === PLANT || t === ROOT;
+function plant(i, x, y) {
+  if (type[i] === PLANT && at(x, y + 1) === DIRT) type[i] = ROOT;
+  let w = life[i];
+  if (w === 0 && type[i] === PLANT && rand() < 0.003) {
+    if (rand() < 0.1) put(i, SEED, 900); else put(i, AIR);
+    return;
+  }
+  if (type[i] === ROOT && w < 24) {
+    const j = nbr4(i, x, y, ri(4));
+    if (j >= 0 && type[j] === WATER) { put(j, AIR); w += 6; }
+    else if (j >= 0 && type[j] === DIRT && life[j] > 0) { life[j]--; w += 3; }
+  }
+  const j = nbr4(i, x, y, ri(4));
+  if (j >= 0 && isGreen(type[j]) && life[j] + 1 < w) { life[j]++; w--; }
+  if (w >= 3 && rand() < 0.15) {
+    const g = GROW[ri(GROW.length)], nx = x + g[0], ny = y + g[1];
+    if (at(nx, ny) === AIR && plantsAround(nx, ny) <= 2) {
+      const give = Math.min(w >> 1, 3);
+      put(ny * W + nx, PLANT, give - 1);
+      w -= give;
+    }
+  } else if (w >= 6 && rand() < 0.006) {
+    const k = 1 + ri(3), s = nbr4(i, x, y, k);
+    if (s >= 0 && type[s] === AIR) { put(s, SEED, 900); w -= 5; }
+  }
+  life[i] = w;
+}
+
+function seed(i, x, y) {
+  if (powder(i, x, y)) return;
+  if (at(x, y + 1) === DIRT && life[i + W] > 0 && rand() < 0.05) { put(i, ROOT, 4); return; }
+  if (--life[i] === 0) put(i, AIR);
+}
+
+// Damp dirt seeps into drier dirt around it, downhill by preference, and
+// dries out where it meets the air.
+function soil(i, x, y) {
+  if (rand() > 0.1) return;
+  if (y > 0 && type[i - W] === AIR && rand() < 0.02) { life[i]--; return; }
+  const j = nbr4(i, x, y, rand() < 0.4 ? 2 : ri(4));
+  if (j >= 0 && type[j] === DIRT && life[j] + 1 < life[i]) { life[j]++; life[i]--; }
+}
+
+function husk(i, x, y) {
+  if (powder(i, x, y)) return;
+  if (--life[i] === 0) put(i, DIRT);
+}
+
+function stepCells() {
+  const ltr = tick & 1;
+  for (let y = H - 1; y >= 0; y--) {
+    const row = y * W;
+    for (let k = 0; k < W; k++) {
+      const x = ltr ? k : W - 1 - k, i = row + x, t = type[i];
+      if (t === DIRT) { if (life[i]) soil(i, x, y); continue; }
+      if (t === AIR || t === STONE || t === BUG || clock[i] === t8) continue;
+      if (t === SAND) powder(i, x, y);
+      else if (t === WATER) water(i, x, y);
+      else if (t === PLANT || t === ROOT) plant(i, x, y);
+      else if (t === SEED) seed(i, x, y);
+      else if (t === HUSK) husk(i, x, y);
+    }
+  }
+  if (rain > 0) {
+    let n = rain;
+    while (n > 0) {
+      if (rand() < n) { const i = ri(W); if (type[i] === AIR) put(i, WATER); }
+      n -= 1;
+    }
+  }
+}
+
+// ---------- the brain VM ----------
+// A brain compiles to one Int32Array of [op, arg] pairs per definition.
+// It runs from the top every tick and stops at the first action, so no
+// state survives between ticks except the bug's four memory cells.
+
+const LIT = 0, PRIM = 1, CALL = 2, JZ = 3, JMP = 4, ACT = 5, RET = 6;
+const S = new Int32Array(64);
+let sp = 0, cur = null;
+const pop = () => sp > 0 ? S[--sp] : 0;
+const push = v => { if (sp < 64) S[sp++] = v; };
+const flag = c => c ? -1 : 0;
+const bx = () => cur.i % W, by = () => (cur.i / W) | 0;
+
+function look(n) {
+  const x = bx(), y = by(), d = cur.dir;
+  for (let k = 1; k <= n; k++) { const t = at(x + d * k, y); if (t !== AIR) return t; }
+  return AIR;
+}
+
+const PRIMS = [
+  ['dup', () => { const a = pop(); push(a); push(a); }],
+  ['drop', () => { pop(); }],
+  ['swap', () => { const b = pop(), a = pop(); push(b); push(a); }],
+  ['over', () => { const b = pop(), a = pop(); push(a); push(b); push(a); }],
+  ['rot', () => { const c = pop(), b = pop(), a = pop(); push(b); push(c); push(a); }],
+  ['nip', () => { const b = pop(); pop(); push(b); }],
+  ['+', () => { const b = pop(); push(pop() + b); }],
+  ['-', () => { const b = pop(); push(pop() - b); }],
+  ['*', () => { const b = pop(); push(Math.imul(pop(), b)); }],
+  ['/', () => { const b = pop(), a = pop(); push(b ? (a / b) | 0 : 0); }],
+  ['mod', () => { const b = pop(), a = pop(); push(b ? a % b : 0); }],
+  ['max', () => { const b = pop(); push(Math.max(pop(), b)); }],
+  ['min', () => { const b = pop(); push(Math.min(pop(), b)); }],
+  ['and', () => { const b = pop(); push(pop() & b); }],
+  ['or', () => { const b = pop(); push(pop() | b); }],
+  ['negate', () => { push(-pop()); }],
+  ['abs', () => { push(Math.abs(pop())); }],
+  ['1+', () => { push(pop() + 1); }],
+  ['1-', () => { push(pop() - 1); }],
+  ['0=', () => { push(flag(pop() === 0)); }],
+  ['=', () => { push(flag(pop() === pop())); }],
+  ['<>', () => { push(flag(pop() !== pop())); }],
+  ['<', () => { const b = pop(); push(flag(pop() < b)); }],
+  ['>', () => { const b = pop(); push(flag(pop() > b)); }],
+  ['@', () => { push(cur.mem[pop() & 3]); }],
+  ['!', () => { const a = pop(); cur.mem[a & 3] = pop(); }],
+  ['rnd', () => { const n = pop(); push(n > 0 ? ri(n) : 0); }],
+  ['ahead', () => { push(at(bx() + cur.dir, by())); }],
+  ['behind', () => { push(at(bx() - cur.dir, by())); }],
+  ['above', () => { push(at(bx(), by() - 1)); }],
+  ['below', () => { push(at(bx(), by() + 1)); }],
+  ['look', () => { push(look(Math.max(1, Math.min(12, pop())))); }],
+  ['sniff', () => {
+    const x = bx(), y = by(), d = cur.dir;
+    let n = 0;
+    for (let dx = 1; dx <= 10; dx++) for (let dy = -5; dy <= 5; dy++) {
+      if (at(x + d * dx, y + dy) === PLANT) n++;
+      if (at(x - d * dx, y + dy) === PLANT) n--;
+    }
+    push(n);
+  }],
+  ['crowd', () => {
+    const x = bx(), y = by();
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && at(x + dx, y + dy) === BUG) n++;
+    push(n);
+  }],
+  ['energy', () => { push(cur.energy); }],
+  ['age', () => { push(cur.age); }],
+  ['load', () => { push(cur.load); }],
+  ['dir', () => { push(cur.dir); }],
+  ...MAT_NAMES.map((m, k) => [m, () => { push(k); }]),
+];
+
+function moveBug(b, j) { swap(b.i, j); }
+
+function grip(x, y) { return !isOpen(at(x - 1, y)) || !isOpen(at(x + 1, y)); }
+
+const ACTS = [
+  ['walk', b => {
+    const x = b.i % W, y = (b.i / W) | 0, nx = x + b.dir;
+    if (isOpen(at(nx, y))) moveBug(b, b.i + b.dir);
+    else if (isOpen(at(nx, y - 1)) && isOpen(at(x, y - 1))) moveBug(b, b.i - W + b.dir);
+  }],
+  ['turn', b => { b.dir = -b.dir; }],
+  ['climb', b => {
+    const x = b.i % W, y = (b.i / W) | 0, nx = x + b.dir;
+    const atLip = !isOpen(at(nx, y)) && isOpen(at(nx, y - 1)) && isOpen(at(x, y - 1));
+    if (atLip) moveBug(b, b.i - W + b.dir);
+    else if (grip(x, y) && isOpen(at(x, y - 1))) moveBug(b, b.i - W);
+  }],
+  ['dig', b => { dig(b, (b.i % W) + b.dir, (b.i / W) | 0); }],
+  ['burrow', b => { dig(b, b.i % W, ((b.i / W) | 0) + 1); }],
+  ['put', b => {
+    if (!b.load) return;
+    const x = b.i % W, y = (b.i / W) | 0;
+    for (const [px, py] of [[x - b.dir, y], [x, y - 1], [x + b.dir, y]]) {
+      if (at(px, py) === AIR) { put(py * W + px, b.load, b.load === SEED ? 900 : 0); b.load = 0; return; }
+    }
+  }],
+  ['eat', b => {
+    const x = b.i % W, y = (b.i / W) | 0;
+    for (const [ex, ey] of [[x + b.dir, y], [x, y + 1], [x, y - 1]]) {
+      const t = at(ex, ey);
+      if (t === PLANT || t === SEED) {
+        put(ey * W + ex, AIR);
+        feed(b, t === PLANT ? PLANT_FOOD : SEED_FOOD);
+        return;
+      }
+    }
+    if (at(x + b.dir, y) === BUG && rand() < CATCH) {
+      const prey = bugs[who[b.i + b.dir] - 1];
+      feed(b, (prey.energy / 3) | 0);
+      prey.cause = `eaten by ${b.species.name}`;
+      removeBug(prey, AIR);
+      b.species.ate++;
+      if (!firstPredator) { firstPredator = true; note(`<b>${b.species.name}</b> ate a bug. The first predator.`); }
+    }
+  }],
+  ['split', b => {
+    if (b.energy < 100 || bugs.length >= MAX_BUGS) return;
+    const x = b.i % W, y = (b.i / W) | 0;
+    for (const [cx, cy] of [[x - b.dir, y], [x, y - 1], [x + b.dir, y]]) {
+      if (at(cx, cy) !== AIR) continue;
+      const give = (b.energy - SPLIT_COST) >> 1;
+      b.energy -= give + SPLIT_COST;
+      const child = addBug(cy * W + cx, offspring(b.species), give, -b.dir, b.gen + 1);
+      if (child) { b.kids++; child.mem.set(b.mem); }
+      return;
+    }
+  }],
+  ['rest', () => {}],
+];
+
+function dig(b, x, y) {
+  const t = at(x, y);
+  const isDiggable = t === DIRT || t === SAND || t === HUSK || t === SEED;
+  if (b.load || !isDiggable) return;
+  put(y * W + x, AIR);
+  b.load = t;
+  b.energy--;
+}
+
+function feed(b, n) { b.energy = Math.min(MAX_ENERGY, b.energy + n); }
+
+const PRIM_FN = PRIMS.map(p => p[1]), ACT_FN = ACTS.map(a => a[1]);
+const PRIM_ID = new Map(PRIMS.map((p, k) => [p[0], k]));
+const ACT_ID = new Map(ACTS.map((a, k) => [a[0], k]));
+const CONTROL = new Set([':', ';', 'if', 'else', 'then', 'begin', 'until', 'again', 'while', 'repeat', 'exit']);
+const isNum = t => /^-?\d+$/.test(t);
+
+function tokenize(src) {
+  const out = [];
+  let inParen = false;
+  for (const line of src.split('\n')) {
+    for (const raw of line.split(/\s+/)) {
+      if (!raw) continue;
+      const t = raw.toLowerCase();
+      if (inParen) { if (t.endsWith(')')) inParen = false; continue; }
+      if (t === '\\') break;
+      if (t === '(') { inParen = true; continue; }
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+function compile(tokens) {
+  const names = new Map();
+  for (let k = 0; k < tokens.length; k++) {
+    if (tokens[k] !== ':') continue;
+    const nm = tokens[k + 1];
+    if (!nm) throw new Error(': needs a name after it');
+    if (PRIM_ID.has(nm) || ACT_ID.has(nm) || CONTROL.has(nm) || isNum(nm)) throw new Error(`can't redefine ${nm}`);
+    if (names.has(nm)) throw new Error(`${nm} is defined twice`);
+    names.set(nm, names.size);
+  }
+  if (!names.has('brain')) throw new Error('needs a definition named brain');
+  const defs = [];
+  let code = null, cs = [], idx = -1;
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k];
+    if (code === null) {
+      if (t !== ':') throw new Error(`${t} is outside any definition`);
+      idx = names.get(tokens[++k]); code = []; cs = [];
+      continue;
+    }
+    const here = code.length;
+    switch (t) {
+      case ':': throw new Error('missing ; before the next :');
+      case ';':
+        if (cs.length) throw new Error(`${cs[cs.length - 1].k} is never closed`);
+        code.push(RET, 0); defs[idx] = Int32Array.from(code); code = null; break;
+      case 'exit': code.push(RET, 0); break;
+      case 'if': code.push(JZ, -1); cs.push({ k: 'if', at: here }); break;
+      case 'else': {
+        const c = cs.pop();
+        if (!c || c.k !== 'if') throw new Error('else without if');
+        code.push(JMP, -1); code[c.at + 1] = code.length; cs.push({ k: 'else', at: here }); break;
+      }
+      case 'then': {
+        const c = cs.pop();
+        if (!c || (c.k !== 'if' && c.k !== 'else')) throw new Error('then without if');
+        code[c.at + 1] = code.length; break;
+      }
+      case 'begin': cs.push({ k: 'begin', at: here }); break;
+      case 'until': case 'again': {
+        const c = cs.pop();
+        if (!c || c.k !== 'begin') throw new Error(`${t} without begin`);
+        code.push(t === 'until' ? JZ : JMP, c.at); break;
+      }
+      case 'while': {
+        const c = cs[cs.length - 1];
+        if (!c || c.k !== 'begin') throw new Error('while without begin');
+        code.push(JZ, -1); cs.push({ k: 'while', at: here, begin: c.at }); break;
+      }
+      case 'repeat': {
+        const w = cs.pop(), c = cs.pop();
+        if (!w || w.k !== 'while' || !c || c.k !== 'begin') throw new Error('repeat without begin … while');
+        code.push(JMP, w.begin); code[w.at + 1] = code.length; break;
+      }
+      default:
+        if (isNum(t)) code.push(LIT, parseInt(t, 10) | 0);
+        else if (PRIM_ID.has(t)) code.push(PRIM, PRIM_ID.get(t));
+        else if (ACT_ID.has(t)) code.push(ACT, ACT_ID.get(t));
+        else if (names.has(t)) code.push(CALL, names.get(t));
+        else throw new Error(`unknown word ${t}`);
+    }
+  }
+  if (code !== null) throw new Error('missing ; at the end');
+  return { defs, entry: names.get('brain') };
+}
+
+const RS = new Int32Array(64);
+function think(b) {
+  cur = b; sp = 0;
+  const defs = b.species.prog.defs;
+  let d = b.species.prog.entry, code = defs[d], pc = 0, rp = 0;
+  for (let budget = BUDGET; budget > 0; budget--) {
+    const op = code[pc], arg = code[pc + 1];
+    pc += 2;
+    switch (op) {
+      case LIT: push(arg); break;
+      case PRIM: PRIM_FN[arg](); break;
+      case JZ: if (pop() === 0) pc = arg; break;
+      case JMP: pc = arg; break;
+      case CALL:
+        if (rp >= 64) return;
+        RS[rp++] = d; RS[rp++] = pc; d = arg; code = defs[d]; pc = 0; break;
+      case ACT: ACT_FN[arg](b); return;
+      case RET:
+        if (rp === 0) return;
+        pc = RS[--rp]; d = RS[--rp]; code = defs[d]; break;
+    }
+  }
+}
+
+// ---------- species and mutation ----------
+// A species is one exact token list. Mutants keep a link to the species
+// they came from, and their colour drifts from the parent's hue.
+
+const CLASSES = [
+  ['ahead', 'below', 'above', 'behind'],
+  ['energy', 'age', 'load', 'sniff', 'crowd', 'dir'],
+  MAT_NAMES,
+  ACTS.map(a => a[0]),
+  ['=', '<>', '<', '>'],
+  ['+', '-', '*', '/', 'mod', 'max', 'min', 'and', 'or'],
+  ['dup', 'drop', 'swap', 'over', 'rot', 'nip'],
+  ['0=', 'negate', 'abs', '1+', '1-'],
+  ['rnd', 'look'],
+  ['@', '!'],
+];
+const CLASS_OF = new Map();
+CLASSES.forEach(c => c.forEach(w => CLASS_OF.set(w, c)));
+const pick = a => a[ri(a.length)];
+
+function variant(t) {
+  if (isNum(t)) {
+    const n = parseInt(t, 10);
+    const r = rand();
+    if (r < 0.4) return String(n + pick([-2, -1, 1, 2]));
+    if (r < 0.6) return String(n * 2);
+    if (r < 0.8) return String(n >> 1);
+    return String(ri(21));
+  }
+  const c = CLASS_OF.get(t);
+  return c ? pick(c) : t;
+}
+
+function randomWord() { return rand() < 0.2 ? String(ri(21)) : pick(pick(CLASSES)); }
+
+function randomRule() {
+  const sense = rand() < 0.75 ? [pick(CLASSES[0]), pick(MAT_NAMES), '='] : [pick(CLASSES[1]), String(ri(150)), pick(['<', '>'])];
+  return [...sense, 'if', pick(CLASSES[3]), 'then'];
+}
+
+function mutate(tokens) {
+  const t = tokens.slice();
+  const times = rand() < 0.3 ? 2 : 1;
+  for (let m = 0; m < times; m++) {
+    const free = [];
+    for (let k = 0; k < t.length; k++) if (!CONTROL.has(t[k]) && t[k - 1] !== ':') free.push(k);
+    const r = rand();
+    if (r < 0.1 || !free.length) {
+      // a whole rule, dropped in where a line starts
+      const starts = [];
+      for (let k = 0; k < t.length; k++) if (t[k - 1] === 'then' || t[k - 2] === ':') starts.push(k);
+      if (starts.length) t.splice(pick(starts), 0, ...randomRule());
+      continue;
+    }
+    const p = pick(free);
+    if (r < 0.6) t[p] = variant(t[p]);
+    else if (r < 0.75) t.splice(p, 1);
+    else if (r < 0.9) t.splice(p, 0, randomWord());
+    else t.splice(p, 0, t[p]);
+  }
+  return t;
+}
+
+const registry = new Map();
+let serial = 0, customs = 0, firstPredator = false;
+
+function hsl(h, s, l) {
+  const a = s * Math.min(l, 1 - l);
+  const f = n => { const k = (n + h / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))); };
+  return [f(0), f(8), f(4)];
+}
+const abgr = ([r, g, b]) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
+
+function speciesFor(tokens, parent, rootName, src, hue) {
+  const key = tokens.join(' ');
+  const known = registry.get(key);
+  if (known) return known;
+  const s = {
+    id: ++serial, key, tokens, prog: compile(tokens), parent, src,
+    root: parent ? parent.root : null, depth: parent ? parent.depth + 1 : 0,
+    hue: parent ? (parent.hue + 360 + (rand() * 50 - 25)) % 360 : hue,
+    count: 0, ever: 0, peak: 0, born: tick, held: false, ate: 0,
+  };
+  if (!parent) s.root = s;
+  s.name = parent ? `${s.root.name} #${s.id}` : rootName;
+  const rgb = hsl(s.hue, 0.9, 0.68);
+  s.css = `rgb(${rgb.join(',')})`;
+  s.color = abgr(rgb);
+  registry.set(key, s);
+  return s;
+}
+
+function offspring(sp) {
+  if (rand() >= MUTATION) return sp;
+  try { return speciesFor(mutate(sp.tokens), sp); } catch { return sp; }
+}
+
+// ---------- bugs ----------
+
+function addBug(i, species, energy, dir, gen) {
+  if (bugs.length >= MAX_BUGS) return null;
+  const b = { i, species, energy, dir, gen, age: 0, load: 0, kids: 0, mem: new Int32Array(4), alive: true, born: tick, cause: '' };
+  bugs.push(b);
+  put(i, BUG);
+  who[i] = bugs.length;
+  species.count++; species.ever++;
+  if (species.count > species.peak) species.peak = species.count;
+  if (!species.held && species.depth > 0 && species.count >= HOLD) {
+    species.held = true;
+    note(`<b style="color:${species.css}">${species.name}</b> took hold. ${changes(species.parent.tokens, species.tokens)}`);
+  }
+  return b;
+}
+
+function removeBug(b, leave) {
+  const k = who[b.i] - 1;
+  put(b.i, leave, leave === HUSK ? 400 : 0);
+  b.alive = false; b.died = tick;
+  const s = b.species;
+  s.count--;
+  if (s.count === 0 && s.held) note(`<b style="color:${s.css}">${s.name}</b> died out, ${tick - s.born} ticks after it appeared.`);
+  const last = bugs.pop();
+  if (last !== b) { bugs[k] = last; who[last.i] = k + 1; }
+}
+
+function stepBug(b) {
+  b.age++;
+  if (tick % HUNGER === 0) b.energy--;
+  const x = b.i % W, y = (b.i / W) | 0;
+  if (at(x, y - 1) === WATER) b.energy--;
+  if (b.energy <= 0) { b.cause = 'starved'; removeBug(b, HUSK); return; }
+  if (b.age > MAX_AGE) { b.cause = 'old age'; removeBug(b, HUSK); return; }
+  const below = at(x, y + 1);
+  if (isOpen(below) && !grip(x, y)) {
+    if (below === AIR) { moveBug(b, b.i + W); return; }
+    if (tick & 1) moveBug(b, b.i + W);
+  }
+  think(b);
+}
+
+function stepBugs() {
+  for (let k = bugs.length - 1; k >= 0; k--) {
+    const b = bugs[k];
+    if (b && b.alive) stepBug(b);
+  }
+}
+
+function step() {
+  tick++; t8 = tick & 255;
+  stepCells();
+  stepBugs();
+  if (tick % 20 === 0) sample();
+}
+
+// ---------- token diff ----------
+
+function diff(a, b) {
+  const n = a.length, m = b.length;
+  const L = Array.from({ length: n + 1 }, () => new Int16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const ops = [];
+  let i = 0, j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && a[i] === b[j]) { ops.push({ k: 'same', t: b[j] }); i++; j++; }
+    else if (i < n && (j === m || L[i + 1][j] >= L[i][j + 1])) ops.push({ k: 'del', t: a[i++] });
+    else ops.push({ k: 'add', t: b[j++] });
+  }
+  return ops;
+}
+
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function changes(a, b) {
+  const ops = diff(a, b), out = [];
+  for (let k = 0; k < ops.length; k++) {
+    const o = ops[k];
+    if (o.k === 'same') continue;
+    const next = ops[k + 1];
+    const isSwap = o.k === 'del' && next && next.k === 'add';
+    if (isSwap) { out.push(`<code>${esc(o.t)}</code> → <code>${esc(next.t)}</code>`); k++; continue; }
+    const run = [o.t];
+    while (ops[k + 1] && ops[k + 1].k === o.k) run.push(ops[++k].t);
+    out.push(`${o.k === 'add' ? '+' : '−'}<code>${esc(run.join(' '))}</code>`);
+  }
+  return out.slice(0, 3).join(', ') + (out.length > 3 ? ' …' : '');
+}
+
+// Lays tokens out one rule per line: a break after a definition's name and
+// wherever an if/begin closes back to the definition's top level.
+function layout(ops) {
+  const lines = [];
+  let line = [], depth = 0, prev = '';
+  const flush = () => { if (line.length) lines.push(line); line = []; };
+  for (const o of ops) {
+    const t = o.t;
+    line.push(o);
+    if (o.k === 'del') continue;
+    if (t === ':') { depth = 0; }
+    else if (t === 'if' || t === 'begin') depth++;
+    else if (t === 'then' || t === 'until' || t === 'again' || t === 'repeat') { depth--; if (depth === 0) flush(); }
+    else if (t === ';') { flush(); lines.push(null); }
+    else if (prev === ':') flush();
+    prev = t;
+  }
+  flush();
+  return lines.map(l => {
+    if (!l) return '';
+    const isHead = l[0].t === ':';
+    const s = l.map(o => o.k === 'same' ? esc(o.t) : `<span class="${o.k}">${esc(o.t)}</span>`).join(' ');
+    return isHead ? s : '  ' + s;
+  }).join('\n').trim();
+}
+
+const plainBrain = tokens => layout(tokens.map(t => ({ k: 'same', t })))
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+function brainHTML(s) {
+  if (!s.parent && s.src) {
+    return esc(s.src.trim()).replace(/(^|\s)(\\ .*)$/gm, '$1<span class="cm">$2</span>').replace(/(\( [^)]*\))/g, '<span class="cm">$1</span>');
+  }
+  return layout(diff(s.root.tokens, s.tokens));
+}
+
+// ---------- presets ----------
+
+const PRESETS = {
+  grazer: { hue: 28, src: `\\ follows the smell of plants and eats them
+: brain
+  ahead plant = if eat then
+  below plant = if eat then
+  above plant = if eat then
+  energy 250 > if split then
+  sniff 0 < if turn then
+  12 rnd 0= if turn then
+  ahead air = ahead water = or if walk then
+  climb ;
+` },
+  digger: { hue: 320, src: `\\ goes through hills instead of over them,
+\\ and fills its tunnel behind it
+: brain
+  ahead plant = if eat then
+  below plant = if eat then
+  above plant = if eat then
+  energy 250 > if split then
+  load if put then
+  sniff 0 < if turn then
+  ahead dirt = 3 rnd 0= and if dig then
+  ahead stone = if turn then
+  16 rnd 0= if turn then
+  walk ;
+` },
+  hermit: { hue: 200, src: `\\ stays put, eats what grows next to it,
+\\ and remembers how long it has gone hungry
+: hungry  0 @ ;
+: brain
+  ahead plant = if 0 0 ! eat then
+  above plant = if 0 0 ! eat then
+  energy 200 > if split then
+  hungry 1+ 0 !
+  hungry 90 > if 0 0 ! turn then
+  hungry 60 > if walk then
+  rest ;
+` },
+  blank: { hue: 55, src: `: brain
+  walk ;
+` },
+};
+
+// ---------- world ----------
+
+function clearWorld() {
+  type.fill(0); life.fill(0); who.fill(0); clock.fill(0);
+  for (let i = 0; i < N; i++) shade[i] = ri(4);
+  bugs = [];
+  for (const s of registry.values()) s.count = 0;
+  history.length = 0;
+  selected = null; selSpecies = null;
+}
+
+function scene() {
+  clearWorld();
+  const ph = [rand() * 6.28, rand() * 6.28, rand() * 6.28];
+  const ground = new Int32Array(W);
+  const pc = (W * (0.3 + rand() * 0.4)) | 0, pw = 22 + ri(10);
+  for (let x = 0; x < W; x++) {
+    let g = H * 0.5 + 9 * Math.sin(x / 31 + ph[0]) + 5 * Math.sin(x / 13 + ph[1]) + 2 * Math.sin(x / 5.3 + ph[2]);
+    const u = (x - pc) / pw;
+    if (Math.abs(u) < 1) g += 13 * (1 - u * u);
+    ground[x] = Math.round(g);
+  }
+  for (let x = 0; x < W; x++) for (let y = ground[x]; y < H; y++) {
+    if (y > H - 4) { put(y * W + x, STONE); continue; }
+    put(y * W + x, DIRT, Math.max(0, 8 - ((y - ground[x]) >> 1)));
+  }
+  for (let k = 0; k < 7; k++) {
+    const cx = ri(W), cy = H * 0.72 + ri(H * 0.25), rx = 4 + ri(12), ry = 2 + ri(5);
+    for (let y = cy - ry; y <= cy + ry; y++) for (let x = cx - rx; x <= cx + rx; x++) {
+      const isInside = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1;
+      if (isInside && at(x, y) === DIRT && y >= 0 && x >= 0 && x < W) put((y | 0) * W + x, STONE);
+    }
+  }
+  let sx = ri(W - 40);
+  if (Math.abs(sx + 20 - pc) < pw + 20) sx = (pc + pw + 30) % (W - 40);
+  for (let x = sx; x < sx + 36; x++) for (let y = ground[x]; y < ground[x] + 5; y++) put(y * W + x, SAND);
+  const line = Math.min(ground[Math.max(0, pc - pw)], ground[Math.min(W - 1, pc + pw)]) + 1;
+  for (let x = pc - pw; x <= pc + pw; x++) {
+    if (x < 0 || x >= W) continue;
+    for (let y = line; y < ground[x]; y++) put(y * W + x, WATER);
+  }
+  for (let k = 0; k < 40; k++) {
+    const x = ri(W), y = ground[x] - 1;
+    if (at(x, y) === AIR && at(x, y + 1) === DIRT) put(y * W + x, ROOT, 16);
+  }
+  release(PRESETS.grazer, 'grazer', 6);
+  release(PRESETS.digger, 'digger', 6);
+  release(PRESETS.hermit, 'hermit', 6);
+}
+
+function release(preset, name, n) {
+  const tokens = tokenize(preset.src);
+  const s = speciesFor(tokens, null, name, preset.src, preset.hue);
+  for (let k = 0; k < n; k++) {
+    const x = 4 + ri(W - 8);
+    let y = 0;
+    while (y < H - 1 && type[(y + 1) * W + x] === AIR) y++;
+    if (type[y * W + x] === AIR) addBug(y * W + x, s, 120, rand() < 0.5 ? -1 : 1, 0);
+  }
+}
+
+// ---------- history, log, panels ----------
+
+const history = [];
+function sample() {
+  const counts = new Map();
+  for (const b of bugs) counts.set(b.species, (counts.get(b.species) || 0) + 1);
+  let plants = 0;
+  for (let i = 0; i < N; i++) if (type[i] === PLANT) plants++;
+  history.push({ total: bugs.length, plants, counts });
+  if (history.length > 300) history.shift();
+}
+
+const logEl = document.getElementById('log');
+function note(html) {
+  const d = document.createElement('div');
+  d.innerHTML = `<span class="t">${tick}</span>${html}`;
+  logEl.prepend(d);
+  while (logEl.children.length > 40) logEl.lastChild.remove();
+}
+
+const chart = document.getElementById('chart');
+const cctx = chart.getContext('2d');
+function drawChart() {
+  const dpr = window.devicePixelRatio || 1, cw = chart.clientWidth, ch = chart.clientHeight;
+  if (chart.width !== cw * dpr) { chart.width = cw * dpr; chart.height = ch * dpr; }
+  cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cctx.clearRect(0, 0, cw, ch);
+  if (history.length < 2) return;
+  const n = history.length, dx = cw / 299;
+  const maxP = Math.max(1, ...history.map(h => h.plants));
+  const maxB = Math.max(10, ...history.map(h => h.total));
+  const line = (f, max, color, width) => {
+    cctx.beginPath();
+    for (let k = 0; k < n; k++) {
+      const x = (300 - n + k) * dx, y = ch - 4 - (f(history[k]) / max) * (ch - 10);
+      k ? cctx.lineTo(x, y) : cctx.moveTo(x, y);
+    }
+    cctx.strokeStyle = color; cctx.lineWidth = width; cctx.stroke();
+  };
+  line(h => h.plants, maxP, '#4f9a4f', 1.5);
+  line(h => h.total, maxB, '#7d8496', 1.5);
+  const top = [...registry.values()].filter(s => s.count > 0).sort((a, b) => b.count - a.count).slice(0, 6);
+  for (const s of top) line(h => h.counts.get(s) || 0, maxB, s.css, 1.5);
+  document.getElementById('legend').innerHTML = `<span>bugs, up to <b>${maxB}</b></span><span style="color:#4f9a4f">plants, up to <b>${maxP}</b></span><span>last ${n * 20} ticks</span>`;
+}
+
+const speciesEl = document.getElementById('species');
+function drawSpecies() {
+  const alive = [...registry.values()].filter(s => s.count > 0).sort((a, b) => b.count - a.count);
+  const max = alive.length ? alive[0].count : 1;
+  const gone = [...registry.values()].filter(s => s.count === 0 && s.ever > 0).length;
+  document.getElementById('nspecies').textContent = alive.length;
+  document.getElementById('extinct').textContent = gone ? `${gone} gone` : '';
+  speciesEl.innerHTML = '';
+  for (const s of alive.slice(0, 10)) {
+    const r = document.createElement('div');
+    r.className = 'row' + (selSpecies === s ? ' sel' : '');
+    r.innerHTML = `<span class="sw" style="background:${s.css}"></span><span class="nm">${esc(s.name)}</span>
+      <span class="bar-n" style="width:${Math.max(2, 60 * s.count / max)}px;background:${s.css}"></span><span class="n">${s.count}</span>`;
+    r.onclick = () => { selSpecies = s; selected = bugs.find(b => b.species === s) || null; brainShown = null; drawInspector(); drawSpecies(); };
+    speciesEl.append(r);
+  }
+  if (alive.length > 10) speciesEl.insertAdjacentHTML('beforeend', `<div class="muted" style="padding:2px 6px">and ${alive.length - 10} more</div>`);
+  if (!alive.length) speciesEl.innerHTML = '<div class="muted">Nothing alive. Release some bugs.</div>';
+}
+
+let selected = null, selSpecies = null, brainShown = null;
+const inspectEl = document.getElementById('inspect');
+function drawInspector() {
+  const s = selSpecies;
+  if (!s) return;
+  const b = selected;
+  if (brainShown !== s) {
+    brainShown = s;
+    const lineage = [];
+    for (let p = s; p; p = p.parent) lineage.push(p);
+    const times = s.depth === 1 ? 'once' : `${s.depth} times`;
+    const origin = s.depth ? `Mutated ${times} since ${esc(s.root.name)}. Green is new, red is lost.` : 'An original brain.';
+    const fromParent = s.parent ? `<div class="muted" style="margin-top:6px">from <span style="color:${s.parent.css}">${esc(s.parent.name)}</span>: ${changes(s.parent.tokens, s.tokens)}</div>` : '';
+    inspectEl.innerHTML = `<h2><span class="sw" style="background:${s.css}"></span><span style="text-transform:none;letter-spacing:0;color:var(--text);font-size:14px">${esc(s.name)}</span>
+        <span class="spacer"></span><button id="copy" style="padding:2px 8px;font-size:12px">edit a copy</button></h2>
+      <div id="vitals"></div>
+      ${fromParent}
+      <div class="muted" style="margin-top:6px">${origin}</div>
+      <pre class="brain">${brainHTML(s)}</pre>`;
+    inspectEl.querySelector('#copy').onclick = () => {
+      srcEl.value = s.src && !s.parent ? s.src : `\\ ${s.name}\n` + plainBrain(s.tokens) + '\n';
+      presetEl.value = '';
+      compileEditor();
+    };
+  }
+  const v = inspectEl.querySelector('#vitals');
+  const sp = `<span>alive</span><b>${s.count} <span class="muted">(peak ${s.peak}, ${s.ever} born${s.ate ? `, ${s.ate} bugs eaten` : ''})</span></b>`;
+  if (!b) { v.innerHTML = `<div class="stats">${sp}</div>`; return; }
+  const status = b.alive ? '' : `<span>died</span><b>${b.cause}, at age ${b.age}</b>`;
+  v.innerHTML = `<div class="stats">${sp}
+    <span>this bug</span><b>generation ${b.gen}, age ${b.age}, ${b.kids} kids</b>
+    <span>energy</span><span class="meter"><i style="width:${100 * Math.max(0, b.energy) / MAX_ENERGY}%"></i></span>
+    <span>carrying</span><b>${b.load ? MAT_NAMES[b.load] : 'nothing'}</b>
+    <span>memory</span><b class="code">${[...b.mem].join(' ')}</b>
+    ${status}</div>`;
+}
+
+// ---------- editor ----------
+
+const srcEl = document.getElementById('src');
+const statusEl = document.getElementById('status');
+const presetEl = document.getElementById('preset');
+presetEl.innerHTML = '<option value="">custom</option>' + Object.keys(PRESETS).map(k => `<option>${k}</option>`).join('');
+let editorTokens = null;
+
+// Checks the editor's brain. The species itself is only made when a bug
+// first runs it, so typing doesn't fill the registry.
+function compileEditor() {
+  const tokens = tokenize(srcEl.value);
+  try {
+    compile(tokens);
+    editorTokens = tokens;
+    const known = registry.get(tokens.join(' '));
+    statusEl.className = 'status';
+    statusEl.innerHTML = known ? `ok · new bugs will be <span style="color:${known.css}">${esc(known.name)}</span>` : 'ok · a new species';
+  } catch (e) {
+    editorTokens = null;
+    statusEl.className = 'status err';
+    statusEl.textContent = e.message;
+  }
+  drawTools();
+}
+
+function editorSpecies() {
+  if (!editorTokens) return null;
+  const key = editorTokens.join(' ');
+  if (registry.has(key)) return registry.get(key);
+  const name = Object.keys(PRESETS).find(k => tokenize(PRESETS[k].src).join(' ') === key);
+  const hue = name ? PRESETS[name].hue : ri(360);
+  const s = speciesFor(editorTokens, null, name || `custom-${++customs}`, srcEl.value, hue);
+  statusEl.innerHTML = `ok · new bugs will be <span style="color:${s.css}">${esc(s.name)}</span>`;
+  drawTools();
+  return s;
+}
+let compileTimer = 0;
+srcEl.addEventListener('input', () => { presetEl.value = ''; clearTimeout(compileTimer); compileTimer = setTimeout(compileEditor, 250); });
+srcEl.addEventListener('keydown', e => e.stopPropagation());
+presetEl.onchange = () => { if (presetEl.value) { srcEl.value = PRESETS[presetEl.value].src; compileEditor(); } };
+document.getElementById('release').onclick = () => {
+  compileEditor();
+  const s = editorSpecies();
+  if (!s) return;
+  for (let k = 0; k < 6; k++) {
+    const x = 4 + ri(W - 8);
+    if (type[x] === AIR) addBug(x, s, 120, rand() < 0.5 ? -1 : 1, 0);
+  }
+};
+
+// ---------- tools and input ----------
+
+const TOOLS = [
+  ['1', 'dirt', DIRT], ['2', 'sand', SAND], ['3', 'stone', STONE], ['4', 'water', WATER],
+  ['5', 'plant', PLANT], ['6', 'seed', SEED], ['7', 'bug', BUG], ['8', 'look', -1], ['9', 'erase', AIR],
+];
+let tool = TOOLS[0], brush = 3;
+const toolsEl = document.getElementById('tools');
+function drawTools() {
+  toolsEl.innerHTML = '';
+  for (const t of TOOLS) {
+    const btn = document.createElement('button');
+    btn.setAttribute('aria-pressed', t === tool);
+    let sw;
+    if (t[1] === 'erase') sw = '<span class="sw erase"></span>';
+    else if (t[1] === 'look') sw = '<span class="sw look"></span>';
+    else if (t[1] === 'bug') sw = `<span class="sw" style="background:${editorTokens && registry.has(editorTokens.join(' ')) ? registry.get(editorTokens.join(' ')).css : '#fff'}"></span>`;
+    else { const c = PAL[t[2]][1]; sw = `<span class="sw" style="background:rgb(${c & 255},${(c >> 8) & 255},${(c >> 16) & 255})"></span>`; }
+    btn.innerHTML = `${sw}${t[1]} <kbd>${t[0]}</kbd>`;
+    btn.onclick = () => { tool = t; drawTools(); };
+    toolsEl.append(btn);
+  }
+  const sz = document.createElement('span');
+  sz.className = 'info';
+  sz.innerHTML = `<span>brush <b>${brush}</b></span>`;
+  toolsEl.append(sz);
+}
+document.getElementById('usebug').onclick = () => { tool = TOOLS[6]; drawTools(); };
+
+function cellOf(e) {
+  const r = cv.getBoundingClientRect();
+  return [Math.floor((e.clientX - r.left) / r.width * W), Math.floor((e.clientY - r.top) / r.height * H)];
+}
+
+const PAINT_LIFE = { [PLANT]: 8, [SEED]: 900 };
+function paint(cx, cy, mat) {
+  for (let dy = -brush + 1; dy < brush; dy++) for (let dx = -brush + 1; dx < brush; dx++) {
+    if (dx * dx + dy * dy >= brush * brush) continue;
+    const x = cx + dx, y = cy + dy;
+    if (x < 0 || x >= W || y < 0 || y >= H) continue;
+    const i = y * W + x, t = type[i];
+    if (mat === AIR) {
+      if (t === BUG) { const b = bugs[who[i] - 1]; b.cause = 'erased'; removeBug(b, AIR); }
+      else put(i, AIR);
+      continue;
+    }
+    const canReplace = t === AIR || (t === WATER && mat !== WATER);
+    if (!canReplace) continue;
+    if ((mat === WATER || mat === SAND || mat === SEED) && rand() < 0.5) continue;
+    put(i, mat, PAINT_LIFE[mat] || 0);
+  }
+}
+
+function placeBug(x, y) {
+  if (x < 0 || x >= W || y < 0 || y >= H) return;
+  const s = editorSpecies(), i = y * W + x;
+  if (s && isOpen(type[i])) addBug(i, s, 120, rand() < 0.5 ? -1 : 1, 0);
+}
+
+function lookAt(x, y) {
+  let best = null, bd = 30;
+  for (const b of bugs) {
+    const d = (b.i % W - x) ** 2 + (((b.i / W) | 0) - y) ** 2;
+    if (d < bd) { bd = d; best = b; }
+  }
+  if (best) { selected = best; selSpecies = best.species; brainShown = null; drawInspector(); drawSpecies(); }
+}
+
+let drag = null, lastBug = null;
+function applyAt(x, y) {
+  if (drag.erase) { paint(x, y, AIR); return; }
+  if (tool[2] === BUG) {
+    const isFar = !lastBug || Math.abs(x - lastBug[0]) + Math.abs(y - lastBug[1]) >= 6;
+    if (isFar) { placeBug(x, y); lastBug = [x, y]; }
+    return;
+  }
+  if (tool[2] === -1) return;
+  paint(x, y, tool[2]);
+}
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId);
+  const [x, y] = cellOf(e);
+  drag = { erase: e.button === 2, x, y };
+  lastBug = null;
+  if (!drag.erase && tool[2] === -1) { lookAt(x, y); drag = null; return; }
+  applyAt(x, y);
+});
+cv.addEventListener('pointermove', e => {
+  const [x, y] = cellOf(e);
+  hover = [x, y];
+  if (!drag) return;
+  const steps = Math.max(Math.abs(x - drag.x), Math.abs(y - drag.y));
+  for (let k = 1; k <= steps; k++) applyAt(Math.round(drag.x + (x - drag.x) * k / steps), Math.round(drag.y + (y - drag.y) * k / steps));
+  drag.x = x; drag.y = y;
+});
+const endDrag = () => { drag = null; };
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+cv.addEventListener('pointerleave', () => { hover = null; });
+cv.addEventListener('wheel', e => { e.preventDefault(); brush = Math.max(1, Math.min(12, brush + (e.deltaY < 0 ? 1 : -1))); drawTools(); }, { passive: false });
+
+let hover = null, paused = false, speed = 3, carry = 0;
+const pauseBtn = document.getElementById('pause');
+function setPaused(p) { paused = p; pauseBtn.firstChild.textContent = p ? 'play ' : 'pause '; }
+pauseBtn.onclick = () => setPaused(!paused);
+document.getElementById('stepb').onclick = () => { setPaused(true); step(); };
+document.getElementById('scene').onclick = () => scene();
+document.getElementById('rain').onchange = e => { rain = +e.target.value; };
+document.getElementById('speed').onchange = e => { speed = +e.target.value; };
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.key === ' ') { e.preventDefault(); setPaused(!paused); }
+  else if (e.key === '.') { setPaused(true); step(); }
+  else if (e.key === 'r') scene();
+  else if (e.key === '[') { brush = Math.max(1, brush - 1); drawTools(); }
+  else if (e.key === ']') { brush = Math.min(12, brush + 1); drawTools(); }
+  else { const t = TOOLS.find(t => t[0] === e.key); if (t) { tool = t; drawTools(); } }
+});
+
+// ---------- render ----------
+
+const rgb = (r, g, b) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
+const tones = (r, g, b, v = 10) => [0, 1, 2, 3].map(k => rgb(Math.min(255, r + (k - 1.5) * v), Math.min(255, g + (k - 1.5) * v), Math.min(255, b + (k - 1.5) * v)));
+const PAL = [];
+PAL[DIRT] = tones(92, 64, 44, 7);
+PAL[SAND] = tones(212, 186, 128, 9);
+PAL[STONE] = tones(98, 102, 112, 8);
+PAL[WATER] = tones(52, 108, 196, 6);
+PAL[PLANT] = tones(70, 168, 72, 10);
+PAL[SEED] = tones(200, 170, 90, 10);
+PAL[HUSK] = tones(150, 138, 120, 8);
+PAL[ROOT] = tones(64, 112, 50, 8);
+const DRY = tones(110, 130, 60, 8);
+const DAMP = tones(66, 46, 34, 6);
+const SKY = Array.from({ length: H }, (_, y) => rgb(12 + y * 0.06, 15 + y * 0.07, 24 + y * 0.05));
+
+const underEl = document.getElementById('under');
+function render() {
+  const blink = (performance.now() / 250 | 0) & 1;
+  let plants = 0;
+  for (let i = 0; i < N; i++) {
+    const t = type[i];
+    if (t === AIR) buf[i] = SKY[(i / W) | 0];
+    else if (t === BUG) {
+      const b = bugs[who[i] - 1];
+      buf[i] = b === selected && blink ? 0xffffffff : b.species.color;
+    } else if (t === PLANT) { plants++; buf[i] = life[i] ? PAL[PLANT][shade[i]] : DRY[shade[i]]; }
+    else if (t === DIRT && life[i] > 4) buf[i] = DAMP[shade[i]];
+    else buf[i] = PAL[t][shade[i]];
+  }
+  ctx.putImageData(img, 0, 0);
+  document.getElementById('tick').textContent = tick;
+  document.getElementById('nbugs').textContent = bugs.length;
+  document.getElementById('nplants').textContent = plants;
+  if (hover) {
+    const [x, y] = hover, t = at(x, y);
+    underEl.textContent = t === BUG ? bugs[who[y * W + x] - 1].species.name : MAT_NAMES[t];
+  }
+}
+
+let frame = 0;
+function loop() {
+  if (!paused) {
+    carry += speed;
+    while (carry >= 1) { step(); carry--; }
+  }
+  render();
+  if (++frame % 15 === 0) { drawSpecies(); drawChart(); drawInspector(); }
+  requestAnimationFrame(loop);
+}
+
+presetEl.value = 'grazer';
+srcEl.value = PRESETS.grazer.src;
+scene();
+compileEditor();
+drawTools();
+loop();
+</script>
+</body>
+</html>
