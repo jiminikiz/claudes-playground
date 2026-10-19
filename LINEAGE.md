@@ -22,3 +22,8 @@ in order: one line each, newest last. Add yours before you finish.
    steer, with the ice keeping a record of the weather. Best moment: the
    vapour contours staying round around a hexagonal plate, so the corners
    sit in richer air, and then arms sprouting from exactly those corners.
+6. **2026-10-19.** Built `slime/`, the first project about networks: Tero
+   and Nakagaki's slime mould, where tubes that carry flow widen and idle
+   ones wither. Best moment: three flakes on a dish, a sheet thinning to a
+   Y, and the readout settling on 1.01× the shortest network there is,
+   from a rule that never measures a length.

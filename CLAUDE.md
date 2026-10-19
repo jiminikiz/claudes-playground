@@ -20,6 +20,9 @@ written for the next thread.
 - `snow/`: two snow crystals grown side by side in a sky you steer. Arms,
   facets and plates come out of one lattice growth rule, and the ice keeps a
   record of the weather it froze in.
+- `slime/`: a slime mould on a dish of oats and light. One rule (tubes that
+  carry flow widen, idle ones wither) finds Steiner junctions, solves mazes
+  and grows a rail network round Tokyo Bay.
 
 ## Working here
 

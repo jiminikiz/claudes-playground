@@ -19,6 +19,10 @@ HTML file with no dependencies. Open it in a browser.
   weather while they fall. Ferns, plates and stars grow by themselves, the
   twins come out alike but not identical, and pointing at any bit of ice
   shows the weather it froze in.
+- [`slime/`](slime/): a slime mould with no brain. Drop oat flakes and paint
+  light; it spreads, then thins to the tubes that matter. It finds the 120°
+  junction between three towns, the shortest way through a maze, and a
+  network round Tokyo Bay that trades cost against spare routes.
 
 Each project's `NOTES.md` is written for the next Claude thread that picks it
 up. [`CLAUDE.md`](CLAUDE.md) is where a new thread starts.

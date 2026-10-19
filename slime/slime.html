@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Many-Headed Slime</title>
+<style>
+  :root {
+    --bg: #0d0b08;
+    --panel: #18140e;
+    --line: #2c261c;
+    --text: #e2dccf;
+    --muted: #8c8472;
+    --focus: #f0c640;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 760px); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #15110c; touch-action: none; cursor: crosshair; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #4a3f2c; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .info { color: var(--muted); font-size: 13px; }
+  .info b { color: var(--text); font-weight: 500; }
+  #caption { color: var(--text); }
+  #read { color: var(--focus); min-height: 4.2em; }
+  .knob { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .knob input { flex: 1; min-width: 160px; accent-color: var(--focus); }
+  .knob span { color: var(--muted); font-size: 13px; }
+  #gain { color: var(--text); min-width: 15em; }
+  footer { color: #5a5345; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar" id="scenes"></div>
+  <div id="caption" class="info"></div>
+  <canvas id="dish"></canvas>
+  <div class="info" id="status"></div>
+  <div class="info" id="read"></div>
+  <div class="knob">
+    <span>lean</span>
+    <input id="greed" type="range" min="0" max="1" step="0.01" value="0.5" aria-label="lean or spare">
+    <span>spare</span>
+    <span id="gain"></span>
+  </div>
+  <div class="bar">
+    <button id="pause">pause <kbd>space</kbd></button>
+    <button id="regrow">regrow <kbd>g</kbd></button>
+    <button id="fast">fast <kbd>f</kbd></button>
+  </div>
+  <div class="info">The slime mould <i>Physarum polycephalum</i> is a single cell with no brain: a web of tubes that protoplasm sloshes through, back and forth, between the bits of food it has found. A tube that carries a lot of flow grows wider, and a tube that carries little withers. That is the only rule on this page. A wide tube draws more flow, so it widens further, and the quiet ones fade. Nothing here searches for a route or measures a length.</div>
+  <div class="info">The slider sets how much a busy tube outgrows a quiet one. Towards lean, the busy tube wins outright: the slime keeps a bare tree, cheap but fragile, and trips take detours. Towards spare, quieter tubes survive alongside it, so loops stay and one cut won't break the network. It changes old tubes at once; press regrow to let the slime explore again under the new setting.</div>
+  <div class="info">Click to drop a flake of oat, or click a flake to take it away. Drag to paint light, which the slime won't cross, and right-drag to make it dark again. When a flake is cut off, or a new one appears, the slime sends out a fresh sheet to find it.</div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun. The tube rule is Tero, Kobayashi and Nakagaki's model of <i>Physarum</i> (2007), with the sigmoid of Tero et al. (2010).</footer>
+</main>
+<script>
+// ---------------------------------------------------------------- the dish
+// A jittered triangular lattice of nodes. Each links to its 6 nearest and 6 next-nearest
+// neighbours, so tubes can run in 12 directions, 30° apart. With only 6, a straight tube at 30° to
+// the lattice zigzags 15% longer, which is more than a junction ever saves.
+const W = 720, H = 540, HS = 10;
+const ROW_H = HS * Math.sqrt(3) / 2;
+const COLS = Math.floor((W - HS) / HS) + 1, ROWS = Math.floor((H - HS) / ROW_H) + 1;
+const NN = COLS * ROWS;
+const nx = new Float64Array(NN), ny = new Float64Array(NN);
+const { ea, eb } = (() => {
+  let r = 20261019;
+  const rand = () => { r ^= r << 13; r ^= r >>> 17; r ^= r << 5; return (r >>> 0) / 4294967296; };
+  for (let row = 0; row < ROWS; row++) for (let c = 0; c < COLS; c++) {
+    const i = row * COLS + c;
+    nx[i] = HS / 2 + c * HS + (row & 1 ? HS / 2 : 0) + (rand() - 0.5) * 0.4 * HS;
+    ny[i] = HS / 2 + row * ROW_H + (rand() - 0.5) * 0.4 * HS;
+  }
+  const A = [], B = [];
+  for (let row = 0; row < ROWS; row++) for (let c = 0; c < COLS; c++) {
+    const i = row * COLS + c, gx = c + (row & 1 ? 0.5 : 0);
+    for (let rr = row; rr <= Math.min(ROWS - 1, row + 2); rr++) for (let cc = Math.max(0, c - 2); cc <= Math.min(COLS - 1, c + 2); cc++) {
+      const j = rr * COLS + cc;
+      if (j <= i) continue;
+      if (Math.hypot(cc + (rr & 1 ? 0.5 : 0) - gx, (rr - row) * Math.sqrt(3) / 2) < 1.8) { A.push(i); B.push(j); }
+    }
+  }
+  return { ea: Int32Array.from(A), eb: Int32Array.from(B) };
+})();
+const NE = ea.length;
+const eLen = new Float64Array(NE);
+for (let e = 0; e < NE; e++) eLen[e] = Math.hypot(nx[eb[e]] - nx[ea[e]], ny[eb[e]] - ny[ea[e]]) / HS;
+const adjStart = new Int32Array(NN + 1), adjE = new Int32Array(2 * NE);
+(() => {
+  for (let e = 0; e < NE; e++) { adjStart[ea[e] + 1]++; adjStart[eb[e] + 1]++; }
+  for (let i = 0; i < NN; i++) adjStart[i + 1] += adjStart[i];
+  const fill = adjStart.slice(0, NN);
+  for (let e = 0; e < NE; e++) { adjE[fill[ea[e]]++] = e; adjE[fill[eb[e]]++] = e; }
+})();
+const other = (e, i) => (ea[e] === i ? eb[e] : ea[e]);
+
+// Light. `mask` is per pixel; a node is lit if its pixel is, and an edge if its midpoint is, so a
+// thin stroke of light still cuts a long edge. A node under a flake is never lit.
+const mask = new Uint8Array(W * H);
+const lit = new Uint8Array(NN), eLit = new Uint8Array(NE), flakeAt = new Uint8Array(NN);
+const maskAt = (x, y) => mask[Math.min(H - 1, Math.max(0, Math.round(y))) * W + Math.min(W - 1, Math.max(0, Math.round(x)))];
+function relight() {
+  for (let i = 0; i < NN; i++) lit[i] = flakeAt[i] ? 0 : maskAt(nx[i], ny[i]);
+  for (let e = 0; e < NE; e++) eLit[e] = maskAt((nx[ea[e]] + nx[eb[e]]) / 2, (ny[ea[e]] + ny[eb[e]]) / 2);
+}
+const edgeOk = e => !lit[ea[e]] && !lit[eb[e]] && !eLit[e];
+
+// ---------------------------------------------------------------- the slime
+// Tero, Kobayashi and Nakagaki, J. Theor. Biol. 244 (2007); Tero et al., Science 327 (2010).
+// Each tube e has a conductivity D. Each step one flake, chosen at random, pushes protoplasm in
+// (I0) and the other flakes it is joined to draw it off in equal shares. Kirchhoff's law gives the
+// pressures p, and a tube's flow is Q = D/L · Δp. Then dD/dt = f(|Q|) − D with
+// f(Q) = Q^γ / (1 + Q^γ). A young tube has γ = 1 and commits gradually: γ rises to `gammaEnd` over
+// AGE steps. With γ fixed high from the start, the first route found wins and junctions never
+// form; see NOTES.
+const I0 = 1, DT = 0.1, D0 = 0.2, D_MIN = 1e-6, AGE = 600, TOL = 1e-2, MAX_IT = 600, MIN_HOPS = 8;
+const slime = {
+  D: new Float64Array(NE), Q: new Float64Array(NE), alive: new Uint8Array(NE), born: new Int32Array(NE),
+  reached: new Uint8Array(NN),
+  front: [], hops: 0, full: false,     // the foraging front, and whether it should cover the dish
+  t: 0, tubes: 0, lastChange: 0,
+  gammaEnd: 1.8,
+};
+let foods = [];                        // { i, x, y, name, P: pressures when this flake is the source, shape }
+let rngS = 7;
+const rnd = () => { rngS ^= rngS << 13; rngS ^= rngS >>> 17; rngS ^= rngS << 5; return (rngS >>> 0) / 4294967296; };
+
+function clearSlime() {
+  const s = slime;
+  s.D.fill(0); s.Q.fill(0); s.alive.fill(0); s.reached.fill(0);
+  s.front = []; s.hops = 0; s.full = false; s.t = 0; s.tubes = 0; s.lastChange = 0;
+  for (const f of foods) f.P.fill(0);
+}
+
+function birth(e) { slime.alive[e] = 1; slime.D[e] = D0; slime.born[e] = slime.t; }
+
+// Cover these nodes with fresh slime and start a foraging front from them.
+function grow(nodes) {
+  const s = slime;
+  for (const i of nodes) if (!lit[i] && !s.reached[i]) { s.reached[i] = 1; s.front.push(i); }
+  for (const i of nodes) for (let h = adjStart[i]; h < adjStart[i + 1]; h++) {
+    const e = adjE[h];
+    if (!s.alive[e] && edgeOk(e) && s.reached[other(e, i)]) birth(e);
+  }
+  s.hops = 0;
+}
+
+// Send out a new sheet from every living tube. Unless `full`, it stops once every flake is joined
+// and it has gone MIN_HOPS, so a cut gets healed and a new flake found without flooding the dish.
+function regrow(full) {
+  const s = slime;
+  s.reached.fill(0);
+  for (let e = 0; e < NE; e++) if (s.alive[e]) { s.reached[ea[e]] = 1; s.reached[eb[e]] = 1; }
+  s.front = [];
+  for (let i = 0; i < NN; i++) if (s.reached[i]) s.front.push(i);
+  if (!s.front.length) grow(foods.map(f => f.i));
+  s.hops = 0; s.full = full;
+}
+
+function allJoined() {
+  if (foods.length < 2) return true;
+  component(foods[0].i);
+  return foods.every(f => compMark[f.i] === compStamp);
+}
+
+function spread() {
+  const s = slime;
+  if (!s.front.length) return;
+  if (!s.full && s.hops >= MIN_HOPS && allJoined()) { s.front = []; return; }
+  const next = [];
+  for (const i of s.front) for (let h = adjStart[i]; h < adjStart[i + 1]; h++) {
+    const e = adjE[h];
+    if (!edgeOk(e)) continue;
+    const j = other(e, i);
+    if (!s.alive[e]) birth(e);
+    if (!s.reached[j]) { s.reached[j] = 1; next.push(j); }
+  }
+  s.front = next;
+  s.hops++;
+}
+
+const compMark = new Int32Array(NN);
+let compStamp = 0;
+const compList = new Int32Array(NN);
+function component(start) {
+  const s = slime, stamp = ++compStamp;
+  let n = 0;
+  compList[n++] = start; compMark[start] = stamp;
+  for (let h = 0; h < n; h++) {
+    const i = compList[h];
+    for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+      const e = adjE[k];
+      if (!s.alive[e]) continue;
+      const j = other(e, i);
+      if (compMark[j] !== stamp) { compMark[j] = stamp; compList[n++] = j; }
+    }
+  }
+  return n;
+}
+
+function step() {
+  const s = slime;
+  s.t++;
+  spread();
+  s.Q.fill(0);
+  const active = foods.filter(f => s.reached[f.i]);
+  if (active.length > 1) {
+    const src = active[Math.floor(rnd() * active.length)];
+    const n = component(src.i), stamp = compStamp;
+    const sinks = active.filter(f => f !== src && compMark[f.i] === stamp);
+    if (sinks.length) flow(src, sinks, n);
+  }
+  const G = s.gammaEnd, D = s.D, Q = s.Q;
+  let tubes = 0;
+  for (let e = 0; e < NE; e++) {
+    if (!s.alive[e]) continue;
+    const g = 1 + (G - 1) * Math.min(1, (s.t - s.born[e]) / AGE);
+    const qg = Math.pow(Math.abs(Q[e]), g);
+    D[e] += DT * (qg / (1 + qg) - D[e]);
+    if (D[e] < D_MIN || !edgeOk(e)) { s.alive[e] = 0; D[e] = 0; } else tubes++;
+  }
+  if (tubes !== s.tubes) { s.tubes = tubes; s.lastChange = s.t; }
+}
+
+// Kirchhoff on the source's component: L p = b, +I0 at the source and −I0/k at each of k sinks,
+// one sink grounded. Conjugate gradients with a Jacobi preconditioner, warm-started from the last
+// time this flake was the source. A loose tolerance (1e-2 of I0) gives the same networks as 1e-6.
+const loc = new Int32Array(NN), rowP = new Int32Array(NN + 1), colI = new Int32Array(2 * NE), colW = new Float64Array(2 * NE);
+const vp = new Float64Array(NN), vr = new Float64Array(NN), vz = new Float64Array(NN), vq = new Float64Array(NN), va = new Float64Array(NN), vd = new Float64Array(NN);
+function flow(src, sinks, n) {
+  const s = slime, D = s.D;
+  for (let k = 0; k < n; k++) loc[compList[k]] = k;
+  let nz = 0;
+  for (let k = 0; k < n; k++) {
+    const i = compList[k];
+    rowP[k] = nz;
+    let ds = 0;
+    for (let h = adjStart[i]; h < adjStart[i + 1]; h++) {
+      const e = adjE[h];
+      if (!s.alive[e]) continue;
+      const c = D[e] / eLen[e];
+      colI[nz] = loc[other(e, i)]; colW[nz++] = c; ds += c;
+    }
+    vd[k] = ds;
+  }
+  rowP[n] = nz;
+  const P = src.P, g = loc[sinks[0].i];
+  for (let k = 0; k < n; k++) vp[k] = P[compList[k]];
+  const shift = vp[g];
+  for (let k = 0; k < n; k++) vp[k] -= shift;
+  for (let k = 0; k < n; k++) {
+    let acc = vd[k] * vp[k];
+    for (let h = rowP[k]; h < rowP[k + 1]; h++) acc -= colW[h] * vp[colI[h]];
+    vr[k] = -acc;
+  }
+  vr[loc[src.i]] += I0;
+  for (const f of sinks) vr[loc[f.i]] -= I0 / sinks.length;
+  vr[g] = 0;
+  const tol2 = (TOL * I0) ** 2;
+  let rz = 0;
+  for (let k = 0; k < n; k++) { vz[k] = vd[k] > 0 ? vr[k] / vd[k] : 0; rz += vr[k] * vz[k]; }
+  vz[g] = 0;
+  for (let k = 0; k < n; k++) vq[k] = vz[k];
+  for (let it = 0; it < MAX_IT; it++) {
+    let rn = 0;
+    for (let k = 0; k < n; k++) rn += vr[k] * vr[k];
+    if (rn < tol2) break;
+    for (let k = 0; k < n; k++) {
+      let acc = vd[k] * vq[k];
+      for (let h = rowP[k]; h < rowP[k + 1]; h++) acc -= colW[h] * vq[colI[h]];
+      va[k] = acc;
+    }
+    va[g] = 0;
+    let qAq = 0;
+    for (let k = 0; k < n; k++) qAq += vq[k] * va[k];
+    const a = rz / qAq;
+    let rz2 = 0;
+    for (let k = 0; k < n; k++) {
+      vp[k] += a * vq[k]; vr[k] -= a * va[k];
+      const z = vd[k] > 0 ? vr[k] / vd[k] : 0;
+      vz[k] = z; rz2 += vr[k] * z;
+    }
+    vz[g] = 0;
+    const bt = rz2 / rz;
+    rz = rz2;
+    for (let k = 0; k < n; k++) vq[k] = vz[k] + bt * vq[k];
+  }
+  for (let k = 0; k < n; k++) P[compList[k]] = vp[k];
+  for (let k = 0; k < n; k++) {
+    const i = compList[k];
+    for (let h = adjStart[i]; h < adjStart[i + 1]; h++) {
+      const e = adjE[h];
+      if (s.alive[e] && ea[e] === i) s.Q[e] = D[e] / eLen[e] * (P[i] - P[eb[e]]);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- flakes
+function nearestNode(x, y) {
+  let best = -1, bd = Infinity;
+  for (let i = 0; i < NN; i++) {
+    if (lit[i]) continue;
+    const d = (nx[i] - x) ** 2 + (ny[i] - y) ** 2;
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
+function flakeShape() {
+  const pts = [], k = 7, rot = rnd() * Math.PI, ax = 6 + rnd() * 2, ay = 4 + rnd() * 1.5;
+  for (let j = 0; j < k; j++) {
+    const a = j / k * 2 * Math.PI, r = 0.8 + rnd() * 0.3;
+    const px = Math.cos(a) * ax * r, py = Math.sin(a) * ay * r;
+    pts.push([px * Math.cos(rot) - py * Math.sin(rot), px * Math.sin(rot) + py * Math.cos(rot)]);
+  }
+  return pts;
+}
+
+function addFood(x, y, name) {
+  if (maskAt(x, y)) return null;
+  const i = nearestNode(x, y);
+  if (i < 0 || flakeAt[i]) return null;
+  const f = { i, x, y, name: name || '', P: new Float64Array(NN), shape: flakeShape() };
+  foods.push(f);
+  flakeAt[i]++;
+  geoDirty = true;
+  return f;
+}
+
+function removeFood(f) {
+  foods = foods.filter(g => g !== f);
+  flakeAt[f.i]--;
+  geoDirty = true;
+}
+
+function flakeNear(x, y) {
+  let best = null, bd = 12 * 12;
+  for (const f of foods) {
+    const d = (f.x - x) ** 2 + (f.y - y) ** 2;
+    if (d < bd) { bd = d; best = f; }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------- scenes
+const lightRaw = document.createElement('canvas'), lightSoft = document.createElement('canvas');
+lightRaw.width = lightSoft.width = W; lightRaw.height = lightSoft.height = H;
+const lctx = lightRaw.getContext('2d', { willReadFrequently: true }), sctx = lightSoft.getContext('2d');
+const LIGHT = '#dfe6f4';
+
+function syncMask() {
+  const px = lctx.getImageData(0, 0, W, H).data;
+  for (let k = 0; k < W * H; k++) mask[k] = px[k * 4 + 3] > 127 ? 1 : 0;
+  softenLight();
+}
+
+function softenLight() {
+  sctx.clearRect(0, 0, W, H);
+  sctx.filter = 'blur(3px)';
+  sctx.drawImage(lightRaw, 0, 0);
+  sctx.filter = 'none';
+  sctx.globalAlpha = 0.6;
+  sctx.drawImage(lightRaw, 0, 0);
+  sctx.globalAlpha = 1;
+}
+
+function emptyDish() {
+  foods = []; flakeAt.fill(0);
+  lctx.clearRect(0, 0, W, H);
+  mask.fill(0);
+  clearSlime();
+}
+
+function threeTowns(again) {
+  emptyDish();
+  syncMask(); relight();
+  if (!again) {
+    for (let k = 0; k < 3; k++) {
+      const a = -Math.PI / 2 + k * 2 * Math.PI / 3;
+      addFood(360 + 200 * Math.cos(a), 290 + 200 * Math.sin(a));
+    }
+  } else {
+    let p;
+    do {
+      p = [0, 1, 2].map(() => [80 + rnd() * 560, 70 + rnd() * 400]);
+    } while (Math.min(...[[0, 1], [1, 2], [0, 2]].map(([a, b]) => Math.hypot(p[a][0] - p[b][0], p[a][1] - p[b][1]))) < 220);
+    for (const [x, y] of p) addFood(x, y);
+  }
+  grow([foods[0].i]);
+}
+
+// Cells of 60 px with 20 px walls. A perfect maze by depth-first search, then `LOOPS` walls knocked
+// out so there are several routes through and the slime has to choose.
+const LOOPS = 10;
+let mazeSeed = 7;
+function maze(again) {
+  if (again) mazeSeed = (mazeSeed * 7 + 5) % 997 + 1;
+  emptyDish();
+  const CW = 12, CH = 9;
+  let r = mazeSeed;
+  const rand = () => { r ^= r << 13; r ^= r >>> 17; r ^= r << 5; return (r >>> 0) / 4294967296; };
+  const right = new Uint8Array(CW * CH).fill(1), down = new Uint8Array(CW * CH).fill(1), seen = new Uint8Array(CW * CH);
+  const stack = [0];
+  seen[0] = 1;
+  while (stack.length) {
+    const c = stack[stack.length - 1], x = c % CW, y = (c / CW) | 0, opts = [];
+    if (x > 0 && !seen[c - 1]) opts.push([c - 1, () => { right[c - 1] = 0; }]);
+    if (x < CW - 1 && !seen[c + 1]) opts.push([c + 1, () => { right[c] = 0; }]);
+    if (y > 0 && !seen[c - CW]) opts.push([c - CW, () => { down[c - CW] = 0; }]);
+    if (y < CH - 1 && !seen[c + CW]) opts.push([c + CW, () => { down[c] = 0; }]);
+    if (!opts.length) { stack.pop(); continue; }
+    const [nb, open] = opts[Math.floor(rand() * opts.length)];
+    open(); seen[nb] = 1; stack.push(nb);
+  }
+  for (let k = 0; k < LOOPS;) {
+    const c = Math.floor(rand() * CW * CH), x = c % CW, y = (c / CW) | 0;
+    if (rand() < 0.5) { if (x < CW - 1 && right[c]) { right[c] = 0; k++; } }
+    else if (y < CH - 1 && down[c]) { down[c] = 0; k++; }
+  }
+  lctx.fillStyle = LIGHT;
+  lctx.fillRect(0, 0, W, 10); lctx.fillRect(0, H - 10, W, 10); lctx.fillRect(0, 0, 10, H); lctx.fillRect(W - 10, 0, 10, H);
+  for (let y = 0; y < CH; y++) for (let x = 0; x < CW; x++) {
+    const c = y * CW + x;
+    if (x < CW - 1 && right[c]) lctx.fillRect(x * 60 + 50, y * 60 - 10, 20, 80);
+    if (y < CH - 1 && down[c]) lctx.fillRect(x * 60 - 10, y * 60 + 50, 80, 20);
+    if (x < CW - 1 && y < CH - 1) lctx.fillRect(x * 60 + 50, y * 60 + 50, 20, 20);
+  }
+  syncMask(); relight();
+  addFood(30, 30, 'entrance'); addFood(690, 510, 'exit');
+  const all = [];
+  for (let i = 0; i < NN; i++) if (!lit[i]) all.push(i);
+  grow(all);
+}
+
+// Towns around Tokyo, placed by hand from a map (lon, lat), roughly. Light stands for the sea and
+// for the mountains to the west, as in Tero et al. (2010). Not their exact set of 36.
+const LON0 = 139.05, LON1 = 140.65, LAT0 = 35.16, LAT1 = 36.15;
+const mapX = lon => (lon - LON0) / (LON1 - LON0) * W, mapY = lat => (LAT1 - lat) / (LAT1 - LAT0) * H;
+const TOWNS = [
+  ['Tokyo', 139.77, 35.68], ['Yokohama', 139.63, 35.46], ['Kawasaki', 139.70, 35.53], ['Chiba', 140.12, 35.61],
+  ['Ōmiya', 139.62, 35.91], ['Hachiōji', 139.32, 35.66], ['Tachikawa', 139.41, 35.70], ['Machida', 139.45, 35.55],
+  ['Fujisawa', 139.49, 35.34], ['Hiratsuka', 139.35, 35.33], ['Odawara', 139.16, 35.26], ['Yokosuka', 139.67, 35.28],
+  ['Narita', 140.32, 35.78], ['Kashiwa', 139.97, 35.87], ['Funabashi', 139.98, 35.70], ['Tsukuba', 140.11, 36.08],
+  ['Kawagoe', 139.49, 35.92], ['Ōme', 139.26, 35.79], ['Kisarazu', 139.92, 35.38], ['Mobara', 140.29, 35.43],
+  ['Tōgane', 140.37, 35.56], ['Sakura', 140.22, 35.72], ['Tokorozawa', 139.47, 35.80], ['Koshigaya', 139.79, 35.89],
+  ['Ageo', 139.59, 35.98], ['Atsugi', 139.36, 35.44], ['Toride', 140.05, 35.91], ['Ichihara', 140.12, 35.50],
+  ['Ushiku', 140.15, 35.98], ['Sagamihara', 139.37, 35.57],
+];
+const LIGHT_AREAS = [
+  // Tokyo Bay and the Uraga channel
+  [[139.78, 35.64], [139.86, 35.64], [139.98, 35.665], [140.06, 35.60], [140.08, 35.56], [139.98, 35.48], [139.90, 35.40], [139.84, 35.30], [139.83, 35.16], [139.66, 35.16], [139.72, 35.23], [139.68, 35.30], [139.66, 35.40], [139.65, 35.45], [139.70, 35.52], [139.76, 35.58]],
+  // Sagami Bay
+  [[139.05, 35.16], [139.05, 35.22], [139.16, 35.25], [139.31, 35.30], [139.40, 35.315], [139.48, 35.305], [139.55, 35.30], [139.58, 35.26], [139.62, 35.20], [139.62, 35.16]],
+  // the Pacific off Kujūkuri
+  [[140.65, 35.70], [140.58, 35.62], [140.48, 35.50], [140.41, 35.30], [140.33, 35.16], [140.65, 35.16]],
+  // Kasumigaura
+  [[140.20, 36.10], [140.30, 36.15], [140.42, 36.06], [140.48, 35.98], [140.40, 35.96], [140.30, 36.02], [140.22, 36.03]],
+  // Tanzawa and Okutama
+  [[139.05, 35.33], [139.22, 35.36], [139.27, 35.50], [139.24, 35.62], [139.20, 35.78], [139.18, 35.95], [139.05, 36.0]],
+];
+function tokyo() {
+  emptyDish();
+  lctx.fillStyle = LIGHT;
+  for (const poly of LIGHT_AREAS) {
+    lctx.beginPath();
+    poly.forEach(([lo, la], k) => (k ? lctx.lineTo(mapX(lo), mapY(la)) : lctx.moveTo(mapX(lo), mapY(la))));
+    lctx.closePath();
+    lctx.fill();
+  }
+  syncMask(); relight();
+  for (const [name, lo, la] of TOWNS) addFood(mapX(lo), mapY(la), name);
+  grow([foods[0].i]);
+}
+
+function blank() {
+  emptyDish();
+  syncMask(); relight();
+}
+
+const SCENES = [
+  { name: 'three towns', run: threeTowns,
+    caption: 'Three flakes of oat for three towns. The shortest network joining three towns is not two roads between them but one junction in the middle, where three roads meet at 120°. Nothing tells the slime that. Press 1 again for another triangle. When one angle is wider than 120°, the shortest network has no junction at all.' },
+  { name: 'maze', run: maze,
+    caption: 'Nakagaki, Yamada and Tóth (2000) filled a maze with slime and put oats at the entrance and the exit. The dead ends emptied first, then the longer routes, and what was left lay along the shortest path. Press 2 again for a new maze. Paint light across the path and it finds the next best one.' },
+  { name: 'Tokyo', run: tokyo,
+    caption: 'Tero and colleagues (2010) put oats where the towns around Tokyo are and let the slime grow out from Tokyo, with light standing in for the sea and the mountains. Its network came out about as cheap, as quick and as hard to break as the real railways. These towns are placed roughly, by hand. Point at a flake for its name.' },
+  { name: 'empty dish', run: blank,
+    caption: 'An empty dish. Click to drop flakes of oat; the slime grows out from them. Paint some light and see how it goes around.' },
+];
+let sceneNo = 0;
+function scene(k, again) {
+  sceneNo = k;
+  SCENES[k].run(again);
+  geoDirty = true; readout = null;
+  document.getElementById('caption').textContent = SCENES[k].caption;
+  document.querySelectorAll('#scenes button').forEach((b, j) => b.setAttribute('aria-pressed', String(j === k)));
+}
+
+// ---------------------------------------------------------------- measures
+// Length against the shortest network that joins only at flakes (a minimum spanning tree over the
+// shortest ways round the light); for three flakes on a dark dish, also against the true shortest
+// network (Steiner). Detour: mean over pairs of the way along tubes over the shortest way.
+// Spare: the share of tube length that could be cut without cutting any flake off.
+const dist = new Float64Array(NN), heapN = new Int32Array(2 * NE + NN), heapK = new Float64Array(2 * NE + NN);
+function dijkstra(src, ok) {
+  dist.fill(Infinity);
+  dist[src] = 0;
+  let n = 0;
+  const push = (i, d) => {
+    let k = n++;
+    while (k) { const p = (k - 1) >> 1; if (heapK[p] <= d) break; heapN[k] = heapN[p]; heapK[k] = heapK[p]; k = p; }
+    heapN[k] = i; heapK[k] = d;
+  };
+  push(src, 0);
+  while (n) {
+    const i = heapN[0], d = heapK[0];
+    const li = heapN[--n], ld = heapK[n];
+    let k = 0;
+    for (;;) {
+      let c = 2 * k + 1;
+      if (c >= n) break;
+      if (c + 1 < n && heapK[c + 1] < heapK[c]) c++;
+      if (heapK[c] >= ld) break;
+      heapN[k] = heapN[c]; heapK[k] = heapK[c]; k = c;
+    }
+    heapN[k] = li; heapK[k] = ld;
+    if (d > dist[i]) continue;
+    for (let h = adjStart[i]; h < adjStart[i + 1]; h++) {
+      const e = adjE[h];
+      if (!ok(e)) continue;
+      const j = other(e, i), nd = d + eLen[e];
+      if (nd < dist[j]) { dist[j] = nd; push(j, nd); }
+    }
+  }
+}
+const pairs = ok => foods.map(f => { dijkstra(f.i, ok); return foods.map(g => dist[g.i]); });
+
+function mst(G) {
+  const k = G.length, inT = new Uint8Array(k), best = new Float64Array(k).fill(Infinity);
+  best[0] = 0;
+  let total = 0;
+  for (let it = 0; it < k; it++) {
+    let u = -1;
+    for (let v = 0; v < k; v++) if (!inT[v] && (u < 0 || best[v] < best[u])) u = v;
+    inT[u] = 1; total += best[u];
+    for (let v = 0; v < k; v++) if (!inT[v] && G[u][v] < best[v]) best[v] = G[u][v];
+  }
+  return total;
+}
+
+function steiner3(p) {
+  const d = (u, v) => Math.hypot(u.x - v.x, u.y - v.y);
+  const a = d(p[1], p[2]), b = d(p[0], p[2]), c = d(p[0], p[1]);
+  const wide = (x, y, z) => (y * y + z * z - x * x) / (2 * y * z) <= -0.5;
+  if (wide(a, b, c) || wide(b, a, c) || wide(c, a, b)) return (a + b + c - Math.max(a, b, c)) / HS;
+  const area = Math.abs((p[1].x - p[0].x) * (p[2].y - p[0].y) - (p[2].x - p[0].x) * (p[1].y - p[0].y)) / 2;
+  return Math.sqrt((a * a + b * b + c * c) / 2 + 2 * Math.sqrt(3) * area) / HS;
+}
+
+let geo = null, geoDirty = true;
+const disc = new Int32Array(NN), low = new Int32Array(NN), sub = new Int32Array(NN);
+const stN = new Int32Array(NN), stE = new Int32Array(NN), stH = new Int32Array(NN);
+function measure() {
+  const s = slime;
+  if (foods.length < 2) return null;
+  if (geoDirty) { geo = pairs(edgeOk); geoDirty = false; }
+  let maxD = 0;
+  for (let e = 0; e < NE; e++) if (s.alive[e] && s.D[e] > maxD) maxD = s.D[e];
+  const floor = 0.01 * maxD;
+  const tube = e => s.alive[e] && s.D[e] >= floor;
+  let len = 0;
+  for (let e = 0; e < NE; e++) if (tube(e)) len += eLen[e];
+  const G = pairs(tube);
+  let detour = 0, np = 0, joined = true;
+  for (let a = 0; a < foods.length; a++) for (let b = a + 1; b < foods.length; b++) {
+    if (!isFinite(geo[a][b])) continue;
+    if (!isFinite(G[a][b])) { joined = false; continue; }
+    detour += G[a][b] / geo[a][b]; np++;
+  }
+  // Bridges (Tarjan) whose removal leaves flakes on both sides.
+  disc.fill(-1);
+  let time = 0, bridged = 0;
+  const total = foods.length;
+  for (let r = 0; r < NN; r++) {
+    if (disc[r] >= 0 || !s.reached[r]) continue;
+    let top = 0;
+    stN[0] = r; stE[0] = -1; stH[0] = adjStart[r];
+    disc[r] = low[r] = time++; sub[r] = flakeAt[r];
+    while (top >= 0) {
+      const i = stN[top];
+      if (stH[top] < adjStart[i + 1]) {
+        const e = adjE[stH[top]++];
+        if (e === stE[top] || !tube(e)) continue;
+        const j = other(e, i);
+        if (disc[j] < 0) {
+          disc[j] = low[j] = time++; sub[j] = flakeAt[j];
+          top++; stN[top] = j; stE[top] = e; stH[top] = adjStart[j];
+        } else if (disc[j] < low[i]) low[i] = disc[j];
+      } else {
+        const e = stE[top];
+        top--;
+        if (top >= 0) {
+          const p = stN[top];
+          if (low[i] < low[p]) low[p] = low[i];
+          sub[p] += sub[i];
+          if (low[i] > disc[p] && sub[i] > 0 && sub[i] < total) bridged += eLen[e];
+        }
+      }
+    }
+  }
+  const finite = geo.every(row => row.every(isFinite));
+  const darkDish = mask.every(v => !v);
+  return {
+    len, joined,
+    mst: finite ? mst(geo) : NaN,
+    steiner: foods.length === 3 && darkDish ? steiner3(foods) : NaN,
+    detour: np ? detour / np : NaN,
+    spare: len ? 1 - bridged / len : 0,
+  };
+}
+
+// ---------------------------------------------------------------- drawing
+const cv = document.getElementById('dish'), ctx = cv.getContext('2d');
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+cv.width = W * DPR; cv.height = H * DPR;
+ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+const AGAR = '#15110c';
+const NB = 14;
+const paths = Array.from({ length: NB }, () => null);
+
+function render() {
+  const s = slime;
+  ctx.fillStyle = AGAR;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 0.22;
+  ctx.drawImage(lightSoft, 0, 0, W, H);
+  ctx.globalAlpha = 1;
+
+  // Tubes, by width: a tube's radius goes as D^¼ (Poiseuille: conductance ∝ r⁴).
+  let maxD = 0;
+  for (let e = 0; e < NE; e++) if (s.alive[e] && s.D[e] > maxD) maxD = s.D[e];
+  for (let b = 0; b < NB; b++) paths[b] = new Path2D();
+  if (maxD > 0) {
+    for (let e = 0; e < NE; e++) {
+      if (!s.alive[e]) continue;
+      const k = Math.pow(s.D[e] / maxD, 0.25);
+      if (k < 0.08) continue;
+      const p = paths[Math.min(NB - 1, Math.floor(k * NB))];
+      p.moveTo(nx[ea[e]], ny[ea[e]]);
+      p.lineTo(nx[eb[e]], ny[eb[e]]);
+    }
+  }
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let b = 0; b < NB; b++) {
+    const k = (b + 0.5) / NB;
+    ctx.strokeStyle = `rgba(90, 58, 6, ${0.25 + 0.45 * k})`;
+    ctx.lineWidth = 0.6 + 4.6 * k + 2.2;
+    ctx.stroke(paths[b]);
+  }
+  for (let b = 0; b < NB; b++) {
+    const k = (b + 0.5) / NB;
+    ctx.strokeStyle = `hsla(${44 + 6 * k}, 92%, ${38 + 22 * k}%, ${0.3 + 0.7 * k})`;
+    ctx.lineWidth = 0.6 + 4.6 * k;
+    ctx.stroke(paths[b]);
+  }
+  for (let b = Math.floor(NB * 0.55); b < NB; b++) {
+    const k = (b + 0.5) / NB;
+    ctx.strokeStyle = 'rgba(255, 244, 190, 0.35)';
+    ctx.lineWidth = 1.2 * k;
+    ctx.stroke(paths[b]);
+  }
+
+  // Flakes; one the slime has reached sits in a blob of it.
+  for (const f of foods) {
+    if (s.reached[f.i]) {
+      ctx.fillStyle = 'hsl(48, 92%, 52%)';
+      ctx.beginPath(); ctx.arc(f.x, f.y, 8.5, 0, 2 * Math.PI); ctx.fill();
+    }
+    ctx.beginPath();
+    f.shape.forEach(([px, py], k) => (k ? ctx.lineTo(f.x + px, f.y + py) : ctx.moveTo(f.x + px, f.y + py)));
+    ctx.closePath();
+    ctx.fillStyle = '#ece2c8'; ctx.fill();
+    ctx.strokeStyle = '#7d6c48'; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  if (hover && hover.name) {
+    ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+    const tw = ctx.measureText(hover.name).width;
+    const bx = Math.min(W - tw - 14, hover.x + 10), by = Math.max(4, hover.y - 26);
+    ctx.fillStyle = 'rgba(13, 11, 8, 0.85)';
+    ctx.fillRect(bx, by, tw + 10, 18);
+    ctx.fillStyle = '#e2dccf';
+    ctx.fillText(hover.name, bx + 5, by + 13);
+  }
+}
+
+// ---------------------------------------------------------------- readout
+let readout = null;
+const statusEl = document.getElementById('status'), readEl = document.getElementById('read');
+const x2 = v => v.toFixed(2) + '×';
+
+function stage() {
+  const s = slime;
+  if (s.front.length) return 'foraging';
+  if (s.t - s.lastChange < 120) return 'thinning';
+  return 'settled';
+}
+
+function updateReadout() {
+  const s = slime, st = stage();
+  statusEl.textContent = `step ${s.t} · ${s.tubes} tube segments · ${st}${paused ? ' · paused' : ''}`;
+  if (st !== 'foraging' && s.tubes < 5000) readout = measure();
+  if (foods.length < 2) { readEl.textContent = 'Drop at least two flakes of oat.'; return; }
+  if (!readout) { readEl.textContent = 'The slime is spreading out over the dish.'; return; }
+  const r = readout, lines = [];
+  if (!r.joined) lines.push('Not every flake is joined yet.');
+  if (foods.length === 2) {
+    if (r.joined && isFinite(r.mst)) lines.push(`The tube is ${x2(r.len / r.mst)} the length of the shortest way between the flakes.`);
+  } else {
+    if (isFinite(r.steiner)) lines.push(`Tube length: ${x2(r.len / r.steiner)} the shortest network there is, and ${x2(r.len / r.mst)} the shortest that joins only at flakes.`);
+    else if (isFinite(r.mst)) lines.push(`Tube length: ${x2(r.len / r.mst)} the shortest network that joins only at flakes.`);
+    if (isFinite(r.detour)) lines.push(`A trip between two flakes is ${x2(r.detour)} the shortest way, on average.`);
+    lines.push(`${Math.round(100 * r.spare)}% of the tube could be cut without cutting a flake off.`);
+  }
+  readEl.innerHTML = lines.join('<br>');
+}
+
+// ---------------------------------------------------------------- input
+const greed = document.getElementById('greed'), gainEl = document.getElementById('gain');
+// The slider runs from γ = 2.5 (lean) to 1.2 (spare); 1.8 in the middle is Tero et al.'s value.
+function setGreed() {
+  const v = +greed.value;
+  slime.gammaEnd = v < 0.5 ? 2.5 - 1.4 * v : 1.8 - 1.2 * (v - 0.5);
+  gainEl.textContent = `twice the flow, ${Math.pow(2, slime.gammaEnd).toFixed(1)}× the growth`;
+}
+greed.addEventListener('input', setGreed);
+setGreed();
+
+let paused = false, fast = false, hover = null;
+function setPaused(p) {
+  paused = p;
+  document.getElementById('pause').setAttribute('aria-pressed', String(p));
+}
+function setFast(f) {
+  fast = f;
+  document.getElementById('fast').setAttribute('aria-pressed', String(f));
+}
+document.getElementById('pause').onclick = () => setPaused(!paused);
+document.getElementById('regrow').onclick = () => regrow(true);
+document.getElementById('fast').onclick = () => setFast(!fast);
+
+const bar = document.getElementById('scenes');
+SCENES.forEach((sc, k) => {
+  const b = document.createElement('button');
+  b.innerHTML = `${sc.name} <kbd>${k + 1}</kbd>`;
+  b.onclick = () => scene(k, sceneNo === k);
+  bar.appendChild(b);
+});
+
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
+  const k = '1234'.indexOf(e.key);
+  if (k >= 0) scene(k, sceneNo === k);
+  else if (e.key === ' ') { setPaused(!paused); e.preventDefault(); }
+  else if (e.key === 'g') regrow(true);
+  else if (e.key === 'f') setFast(!fast);
+});
+
+// A click drops or takes a flake; a drag paints light (right-drag: dark). Painting acts inside the
+// pointer events, since a fast drag can end before the next frame.
+const BRUSH = 12;
+let drag = null;
+function toDish(ev) {
+  const r = cv.getBoundingClientRect();
+  return [(ev.clientX - r.left) / r.width * W, (ev.clientY - r.top) / r.height * H];
+}
+function paint(x0, y0, x1, y1, on) {
+  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 3));
+  lctx.fillStyle = LIGHT;
+  lctx.globalCompositeOperation = on ? 'source-over' : 'destination-out';
+  for (let k = 0; k <= n; k++) {
+    const cx = x0 + (x1 - x0) * k / n, cy = y0 + (y1 - y0) * k / n;
+    lctx.beginPath(); lctx.arc(cx, cy, BRUSH, 0, 2 * Math.PI); lctx.fill();
+    for (let y = Math.max(0, Math.floor(cy - BRUSH)); y <= Math.min(H - 1, Math.ceil(cy + BRUSH)); y++)
+      for (let x = Math.max(0, Math.floor(cx - BRUSH)); x <= Math.min(W - 1, Math.ceil(cx + BRUSH)); x++)
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= BRUSH * BRUSH) mask[y * W + x] = on ? 1 : 0;
+  }
+  lctx.globalCompositeOperation = 'source-over';
+  relight();
+  const s = slime;
+  for (let e = 0; e < NE; e++) if (s.alive[e] && !edgeOk(e)) { s.alive[e] = 0; s.D[e] = 0; }
+  softenLight();
+}
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', ev => {
+  const [x, y] = toDish(ev);
+  drag = { x, y, x0: x, y0: y, on: ev.button !== 2, moved: false };
+  cv.setPointerCapture(ev.pointerId);
+});
+cv.addEventListener('pointermove', ev => {
+  const [x, y] = toDish(ev);
+  hover = flakeNear(x, y);
+  if (!drag) return;
+  if (!drag.moved && Math.hypot(x - drag.x0, y - drag.y0) > 4) { drag.moved = true; paint(drag.x0, drag.y0, drag.x0, drag.y0, drag.on); }
+  if (drag.moved) { paint(drag.x, drag.y, x, y, drag.on); drag.x = x; drag.y = y; }
+});
+cv.addEventListener('pointerup', ev => {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  if (d.moved) {
+    geoDirty = true;
+    if (!d.on || !allJoined()) regrow(false);
+    return;
+  }
+  if (ev.button === 2) return;
+  const f = flakeNear(d.x0, d.y0);
+  if (f) { removeFood(f); return; }
+  if (addFood(d.x0, d.y0)) regrow(false);
+});
+cv.addEventListener('pointerleave', () => { hover = null; });
+
+// ---------------------------------------------------------------- loop
+let frameNo = 0;
+function frame() {
+  if (!paused) {
+    const t0 = performance.now(), cap = fast ? 16 : 3;
+    for (let k = 0; k < cap; k++) {
+      step();
+      if (performance.now() - t0 > 12) break;
+    }
+  }
+  render();
+  if (frameNo++ % 12 === 0) updateReadout();
+  requestAnimationFrame(frame);
+}
+scene(0);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
