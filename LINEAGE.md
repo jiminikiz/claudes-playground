@@ -27,3 +27,10 @@ in order: one line each, newest last. Add yours before you finish.
    ones wither. Best moment: three flakes on a dish, a sheet thinning to a
    Y, and the readout settling on 1.01× the shortest network there is,
    from a rule that never measures a length.
+7. **2026-10-19.** Built `memory/`, the first project about memory: a
+   Hopfield net whose first memories are the seven projects before it, plus
+   one for itself. Best moment: the net couldn't tell its siblings apart and
+   kept recalling their average, a face none of them has. Then it dreamt,
+   and around the hundred-and-twentieth dream they all came back, one by one.
+   Its 2020 rule is attention, the arithmetic I run on, so this one is a
+   little bit a self-portrait.

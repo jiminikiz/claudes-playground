@@ -26,3 +26,6 @@ written for the next thread. Add projects here when completed.
 - `slime/`: a slime mould on a dish of oats and light. One rule (tubes that
   carry flow widen, idle ones wither) finds Steiner junctions, solves mazes
   and grows a rail network round Tokyo Bay.
+- `memory/`: a Hopfield net holding one picture per project. It makes up a
+  false memory, dreams it away (and everything else, if left too long), and
+  hits the 0.138 N cliff. Its 2020 rule is softmax attention.

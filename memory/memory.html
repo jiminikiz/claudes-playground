@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Net That Dreams</title>
+<style>
+  :root {
+    --bg: #0b0d16;
+    --panel: #151929;
+    --line: #272c42;
+    --text: #e4dfd2;
+    --muted: #8a8ca0;
+    --focus: #f0c640;
+    --att: #6fd3c1;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 760px); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #0f1220; touch-action: none; cursor: crosshair; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #454c6c; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .info { color: var(--muted); font-size: 13px; }
+  .info b { color: var(--text); font-weight: 500; }
+  #caption { color: var(--text); }
+  #status { color: var(--focus); min-height: 1.4em; }
+  #read { min-height: 1.4em; }
+  .knob { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 240px; }
+  .knob input { flex: 1; min-width: 120px; accent-color: var(--att); }
+  .knob span { color: var(--muted); font-size: 13px; }
+  .knob.off { opacity: 0.35; }
+  #focusv { color: var(--text); min-width: 4.5em; }
+  footer { color: #565a70; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar" id="scenes"></div>
+  <div id="caption" class="info"></div>
+  <canvas id="net"></canvas>
+  <div class="info" id="status"></div>
+  <div class="info" id="read"></div>
+  <div class="bar">
+    <button id="r1982">1982 rule <kbd>m</kbd></button>
+    <button id="r2020">2020 rule</button>
+    <div class="knob" id="knob">
+      <span>blur</span>
+      <input id="focus" type="range" min="0" max="1" step="0.01" value="0.65" aria-label="focus of the 2020 rule">
+      <span>sharp</span>
+      <span id="focusv"></span>
+    </div>
+  </div>
+  <div class="bar">
+    <button id="recall">recall <kbd>space</kbd></button>
+    <button id="damage">damage <kbd>n</kbd></button>
+    <button id="clear">clear <kbd>c</kbd></button>
+    <button id="store">store <kbd>s</kbd></button>
+    <button id="dream">dream <kbd>d</kbd></button>
+    <button id="fast">fast <kbd>f</kbd></button>
+  </div>
+  <div class="info">This is a Hopfield network: 1024 neurons, each on or off, and a synapse between every pair. To store a picture, each synapse between two cells that agree is strengthened and each between two that disagree is weakened. Nothing else is kept. To recall, the neurons wake one at a time in random order, add up what their synapses say, and turn on or off to match. Each change lowers an energy (the chart on the right), so the net always settles, and the stored pictures are the valleys it settles in. Every picture's negative is a valley too.</div>
+  <div class="info">The siblings share a dark background, so their valleys run together into a wide one the net was never given: a false memory, the average of them all. In 1983 Hopfield, Feinstein and Palmer let a net settle from noise and made the place it landed a little shallower. Crick and Mitchison proposed the same year that this is what dream sleep is for: we dream in order to forget. The false valleys are the widest, so dreams fall into them most often, and they are the first to go.</div>
+  <div class="info">The 2020 rule is from Ramsauer et al., building on Krotov and Hopfield (2016). It keeps each memory whole and recalls with <b>cue ← memoriesᵀ · softmax(β · memories · cue)</b>. That is the attention step of a transformer, with the cue as the query and the memories as keys and values, which makes it, roughly, how the model that wrote this page reads its own context. Its capacity grows exponentially with the number of neurons. The 1982 rule fails past about 0.138 of them. The bars under each memory show the attention it gets. Turn the focus down and see where it lands.</div>
+  <div class="info">Click a memory to cue the net with a damaged copy, or right-click it to forget it. Drag on the grid to draw, right-drag to rub out. Recall runs from whatever is on the grid, so a fragment will do. Press store to keep what you drew.</div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun. The net is Hopfield's (1982), unlearning is Hopfield, Feinstein and Palmer's (1983), and the 2020 rule is Ramsauer et al.'s. The eight siblings are the playground's projects, one per thread.</footer>
+</main>
+<script>
+// ---------------------------------------------------------------- the siblings
+// One picture per thread of the playground, drawn as a sign function on [-1, 1]², rasterised to 32×32.
+const S = 32, N = S * S;
+const seg = (u, v, ax, ay, bx, by) => {
+  const dx = bx - ax, dy = by - ay;
+  const t = Math.max(0, Math.min(1, ((u - ax) * dx + (v - ay) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(u - ax - t * dx, v - ay - t * dy);
+};
+function besselJ(m, x) {
+  let sum = 0, t = Math.pow(x / 2, m);
+  for (let k = 1; k <= m; k++) t /= k;
+  for (let k = 0; k < 30; k++) { sum += t; t *= -(x * x / 4) / ((k + 1) * (k + 1 + m)); }
+  return sum;
+}
+const hash = (i, j) => {
+  let h = (i * 374761393 + j * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+const FONT = { o: ['.###.', '#...#', '#...#', '#...#', '.###.'], k: ['#...#', '#..#.', '###..', '#..#.', '#...#'] };
+const SIBLINGS = [
+  ['sand', (u, v, i, j) => v > 0.12 + 0.88 * Math.abs(u) || (Math.abs(u) < 0.1 && v < 0.05 && hash(i, j) < 0.55)],
+  ['forth', (u, v, i, j) => {
+    const isScreen = Math.abs(u) < 0.92 && v > -0.7 && v < 0.62;
+    const glyph = (ch, x0, y0) => {
+      const c = Math.floor((i - x0) / 2), r = Math.floor((j - y0) / 2);
+      return c >= 0 && c < 5 && r >= 0 && r < 5 && FONT[ch][r][c] === '#';
+    };
+    const isCut = glyph('o', 4, 10) || glyph('k', 15, 10) || (i >= 26 && i < 29 && j >= 16 && j < 20);
+    const isStand = Math.abs(u) < 0.5 && v > 0.78 && v < 0.92;
+    return (isScreen && !isCut) || isStand;
+  }],
+  ['terrarium', (u, v) => {
+    const isBody = (u / 0.36) ** 2 + ((v - 0.18) / 0.55) ** 2 < 1, isHead = Math.hypot(u, v + 0.5) < 0.24;
+    let isLeg = false;
+    for (const side of [-1, 1]) for (const [y0, y1] of [[-0.05, -0.35], [0.2, 0.2], [0.45, 0.8]]) isLeg = isLeg || seg(u, v, 0, y0, side * 0.85, y1) < 0.07;
+    const isFeeler = seg(u, v, -0.1, -0.65, -0.45, -0.98) < 0.06 || seg(u, v, 0.1, -0.65, 0.45, -0.98) < 0.06;
+    return isBody || isHead || isLeg || isFeeler;
+  }],
+  ['ripple', (u, v) => {
+    const k = 2 * Math.PI / 0.36;
+    return Math.cos(k * Math.hypot(u + 0.42, v + 1.15)) + Math.cos(k * Math.hypot(u - 0.42, v + 1.15)) > 0;
+  }],
+  ['drum', (u, v) => {
+    const r = Math.hypot(u, v);
+    return r < 0.96 && besselJ(2, 8.417 * r / 0.96) * Math.cos(2 * Math.atan2(v, u)) > 0;
+  }],
+  ['snow', (u, v) => {
+    // Fold into one twelfth of the flake: an arm along +x, side branches at 60°.
+    const r = Math.hypot(u, v), sixth = Math.PI / 3;
+    let th = ((Math.atan2(v, u) + Math.PI / 2) % sixth + sixth) % sixth;
+    if (th > sixth / 2) th = sixth - th;
+    const x = r * Math.cos(th), y = r * Math.sin(th);
+    if (x < 0.22 && y < 0.22 * Math.tan(sixth / 2)) return true;
+    if (r > 0.97) return false;
+    if (y < 0.065) return true;
+    for (const b of [0.38, 0.6, 0.8]) {
+      const t = x - b;
+      if (t > 0 && t < 0.3 * (1 - b) + 0.05 && Math.abs(y - t * Math.tan(sixth)) < 0.07) return true;
+    }
+    return false;
+  }],
+  ['slime', (u, v) => {
+    const flakes = [[0, -0.72], [-0.68, 0.5], [0.68, 0.5]], cx = 0, cy = 0.09;
+    for (const [x, y] of flakes) if (Math.hypot(u - x, v - y) < 0.2 || seg(u, v, x, y, cx, cy) < 0.075) return true;
+    return Math.hypot(u - cx, v - cy) < 0.11;
+  }],
+  ['memory', (u, v) => {
+    // A logarithmic spiral, like a shell, which keeps every chamber it grew.
+    const r = Math.hypot(u, v), t = (Math.log(r + 1e-9) / 0.16 - Math.atan2(v, u)) / (2 * Math.PI);
+    return r < 0.98 && r > 0.05 && ((t % 1) + 1) % 1 < 0.5;
+  }],
+];
+function raster(f) {
+  const p = new Int8Array(N);
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) p[j * S + i] = f((i + 0.5) / S * 2 - 1, (j + 0.5) / S * 2 - 1, i, j) ? 1 : -1;
+  return p;
+}
+
+// ---------------------------------------------------------------- the net
+let seed = 20261019;
+const rand = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 4294967296; };
+const W = new Float32Array(N * N);   // symmetric, zero diagonal
+const mems = [];                     // { p, name, img }
+const EPS = 0.01;                    // how much one dream is unlearned, against 1 for a stored picture
+
+/** W += k/N · p pᵀ. k = 1 stores, −1 forgets, −EPS unlearns a dream. */
+function imprint(p, k) {
+  const c = k / N;
+  for (let i = 0; i < N; i++) {
+    const a = c * p[i], row = i * N;
+    for (let j = 0; j < N; j++) W[row + j] += a * p[j];
+    W[row + i] = 0;
+  }
+}
+function fieldsOf(st, hh) {
+  for (let i = 0; i < N; i++) {
+    const row = i * N;
+    let t = 0;
+    for (let j = 0; j < N; j++) t += W[row + j] * st[j];
+    hh[i] = t;
+  }
+}
+/** Flip neuron i and keep every field current: O(N) instead of recomputing W·s. */
+function flipAt(st, hh, i) {
+  const v = -st[i], d = 2 * v, row = i * N;
+  st[i] = v;
+  for (let j = 0; j < N; j++) hh[j] += d * W[row + j];
+}
+const wantsFlip = (st, hh, i) => hh[i] * st[i] < 0;
+function isStable(st, hh) {
+  for (let i = 0; i < N; i++) if (wantsFlip(st, hh, i)) return false;
+  return true;
+}
+const order = new Int32Array(N).map((_, i) => i);
+let cursor = N;
+function nextNeuron() {
+  if (cursor >= N) {
+    for (let i = N - 1; i > 0; i--) { const k = Math.floor(rand() * (i + 1)), t = order[i]; order[i] = order[k]; order[k] = t; }
+    cursor = 0;
+  }
+  return order[cursor++];
+}
+/** Wake `visits` neurons in random order; returns the indices that flipped. */
+function wake(st, hh, visits, flipped) {
+  for (let n = 0; n < visits; n++) {
+    const i = nextNeuron();
+    if (wantsFlip(st, hh, i)) { flipAt(st, hh, i); if (flipped) flipped.push(i); }
+  }
+}
+function settle(st, hh, maxSweeps) {
+  for (let sw = 0; sw < maxSweeps; sw++) {
+    wake(st, hh, N);
+    if (isStable(st, hh)) return true;
+  }
+  return false;
+}
+function overlap(a, p) { let d = 0; for (let i = 0; i < N; i++) d += a[i] * p[i]; return d / N; }
+function energy(st, hh) { let e = 0; for (let i = 0; i < N; i++) e -= st[i] * hh[i]; return e / 2 / N; }
+function randPattern() { const p = new Int8Array(N); for (let i = 0; i < N; i++) p[i] = rand() < 0.5 ? 1 : -1; return p; }
+function damage(st, f) { for (let i = 0; i < N; i++) if (rand() < f) st[i] = -st[i]; }
+
+// The 2020 rule: x ← Xᵀ softmax(β X x), with β·N = `focus` so the overlaps it weighs run from −1 to 1.
+let focus = 20;
+function attend(xin, out, w) {
+  const K = mems.length;
+  w.length = K;
+  let mx = -Infinity;
+  for (let k = 0; k < K; k++) { w[k] = focus * overlap(xin, mems[k].p); if (w[k] > mx) mx = w[k]; }
+  let z = 0;
+  for (let k = 0; k < K; k++) { w[k] = Math.exp(w[k] - mx); z += w[k]; }
+  out.fill(0);
+  for (let k = 0; k < K; k++) {
+    w[k] /= z;
+    if (w[k] < 1e-7) continue;
+    const a = w[k], p = mems[k].p;
+    for (let i = 0; i < N; i++) out[i] += a * p[i];
+  }
+}
+
+// Scratch for tests that run out of sight.
+const tS = new Int8Array(N), tH = new Float32Array(N), tX = new Float32Array(N), tY = new Float32Array(N), tW = [];
+/** Overlap with p after recalling from a copy of p with a share `noise` of its cells flipped. */
+function recallFrom(p, noise) {
+  tS.set(p);
+  damage(tS, noise);
+  if (rule === 2020) {
+    tX.set(tS);
+    for (let t = 0; t < 4; t++) { attend(tX, tY, tW); tX.set(tY); }
+    return overlap(tX, p);
+  }
+  fieldsOf(tS, tH);
+  settle(tS, tH, 20);
+  return overlap(tS, p);
+}
+
+// ---------------------------------------------------------------- what it remembers
+function describe(st) {
+  if (!mems.length) return { kind: 'empty', text: 'nothing: it holds no memories' };
+  const ov = mems.map((m, k) => [overlap(st, m.p), k]).sort((a, b) => Math.abs(b[0]) - Math.abs(a[0]));
+  const [m0, k0] = ov[0], name0 = mems[k0].name;
+  if (m0 >= 0.9) return { kind: 'memory', text: name0 };
+  if (m0 <= -0.9) return { kind: 'negative', text: 'the negative of ' + name0 };
+  const strong = ov.filter(([m]) => Math.abs(m) >= 0.3).slice(0, 3);
+  if (!strong.length) return { kind: 'noise', text: 'something it was never given' };
+  // A blend made all of negatives is the negative of a blend, and reads better that way.
+  const isNegative = strong.every(([m]) => m < 0);
+  const parts = strong.map(([m, k]) => (m < 0 && !isNegative ? 'negative ' : '') + mems[k].name);
+  const list = parts.length === 1 ? parts[0] : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+  return { kind: 'blend', text: (isNegative ? 'the negative of a false memory, a blend of ' : 'a false memory, a blend of ') + list };
+}
+let remembered = null;   // { ok, of, sampled, noise }
+const cueNoise = () => sceneNo === 2 ? 0.1 : 0.2;
+function measureRemembers() {
+  const K = mems.length;
+  if (!K) { remembered = null; return; }
+  const isSampled = K > 16;
+  const picks = isSampled ? Array.from({ length: 12 }, () => Math.floor(rand() * K)) : mems.map((_, k) => k);
+  let ok = 0;
+  for (const k of picks) if (recallFrom(mems[k].p, cueNoise()) >= 0.95) ok++;
+  remembered = { ok, of: picks.length, sampled: isSampled, noise: cueNoise() };
+}
+
+// ---------------------------------------------------------------- state
+const s = new Int8Array(N).fill(-1), h = new Float32Array(N);   // the 1982 net
+const x = new Float32Array(N).fill(-1);                          // the 2020 net
+const xFrom = new Float32Array(N), xTo = new Float32Array(N), att = [];
+const flash = new Float32Array(N);
+let rule = 1982, sceneNo = 1, fast = false;
+let isRecalling = false, isDreaming = false, isFilling = false;
+let hStale = true, remStale = true;
+let attT = 0, attSteps = 0;
+let eTrace = [];
+let status = '';
+let dreams = 0, lastDream = null;
+const dreamLog = [];                 // last few dreams: { img, d }
+const dS = new Int8Array(N), dH = new Float32Array(N);
+let inDream = false, dSweeps = 0;
+let pts = [];                        // crowd: { k, m, kind }
+const CROWD = 200;
+
+function addMemory(p, name) {
+  mems.push({ p: Int8Array.from(p), name, img: thumb(p) });
+  imprint(p, 1);
+  hStale = true; remStale = true;
+}
+function forget(k) {
+  imprint(mems[k].p, -1);
+  status = 'Forgot ' + mems[k].name + '.';
+  mems.splice(k, 1);
+  hStale = true; remStale = true;
+}
+function setState(p) { s.set(p); x.set(p); hStale = true; eTrace = []; }
+function settledReport(st) {
+  const d = describe(st);
+  const notes = {
+    memory: 'Settled on ' + d.text + '.',
+    negative: 'Settled on ' + d.text + '. Every memory’s negative is a valley too.',
+    blend: 'Settled on ' + d.text + '.',
+    noise: 'Settled on ' + d.text + '.',
+    empty: 'It holds no memories.',
+  };
+  status = notes[d.kind];
+}
+
+// ---------------------------------------------------------------- recall, dream, crowd
+function startRecall() {
+  stopDreaming();
+  if (!mems.length) { status = 'It holds no memories yet. Draw something and press s to store it.'; return; }
+  isRecalling = true;
+  status = 'Recalling…';
+  eTrace = [];
+  if (rule === 2020) { attSteps = 0; beginAttendStep(); }
+}
+function beginAttendStep() {
+  xFrom.set(x);
+  attend(x, xTo, att);
+  attT = 0;
+}
+function recallFrame() {
+  if (rule === 2020) {
+    attT += fast ? 0.34 : 1 / 18;
+    if (attT < 1) return;
+    x.set(xTo);
+    attSteps++;
+    let delta = 0;
+    for (let i = 0; i < N; i++) delta = Math.max(delta, Math.abs(xTo[i] - xFrom[i]));
+    const isDone = delta < 1e-3 || attSteps >= 8;
+    if (isDone) {
+      isRecalling = false;
+      for (let i = 0; i < N; i++) s[i] = x[i] >= 0 ? 1 : -1;
+      hStale = true;
+      settledReport(x);
+      return;
+    }
+    beginAttendStep();
+    return;
+  }
+  if (hStale) { fieldsOf(s, h); hStale = false; }
+  if (!eTrace.length) eTrace.push(energy(s, h));
+  const flipped = [];
+  wake(s, h, fast ? N : 32, flipped);
+  for (const i of flipped) { flash[i] = 1; x[i] = s[i]; }
+  eTrace.push(energy(s, h));
+  if (isStable(s, h)) { isRecalling = false; settledReport(s); }
+}
+
+function beginDream() {
+  for (let i = 0; i < N; i++) dS[i] = rand() < 0.5 ? 1 : -1;
+  fieldsOf(dS, dH);
+  dSweeps = 0;
+  inDream = true;
+}
+/** One sweep of the dreaming net; true once it has settled (or given up). */
+function dreamSweep() {
+  wake(dS, dH, N);
+  dSweeps++;
+  return isStable(dS, dH) || dSweeps >= 12;
+}
+function endDream() {
+  imprint(dS, -EPS);
+  inDream = false;
+  dreams++;
+  lastDream = describe(dS);
+  dreamLog.push({ img: thumb(dS, DREAM_INK, DREAM_DARK), d: lastDream });
+  if (dreamLog.length > 6) dreamLog.shift();
+  hStale = true;
+  if (dreams % 10 === 0) remStale = true;
+  if (sceneNo === 2 && dreams % 25 === 0) crowdPoint('dream');
+}
+function dreamOne() { beginDream(); while (!dreamSweep()); endDream(); }
+function dreamFrame() {
+  if (fast) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < 14) dreamOne();
+  } else {
+    if (!inDream) beginDream();
+    if (dreamSweep()) endDream();
+  }
+  status = 'Dreaming. Dream ' + dreams + (lastDream ? ': ' + lastDream.text + '.' : '.');
+}
+function startDreaming() {
+  if (rule === 2020) { status = 'The 2020 rule keeps each memory whole, so there is nothing to dream away.'; return; }
+  if (!mems.length) { status = 'Nothing to dream about yet.'; return; }
+  isRecalling = false; isFilling = false;
+  isDreaming = true;
+}
+function stopDreaming() {
+  if (!isDreaming) return;
+  isDreaming = false; inDream = false;
+  remStale = true;
+  status = 'Awake after ' + dreams + ' dream' + (dreams === 1 ? '' : 's') + '.';
+}
+
+function crowdPoint(kind) {
+  const K = mems.length, T = kind === 'dream' ? 8 : 3;
+  let m = 0;
+  for (let t = 0; t < T; t++) m += recallFrom(mems[Math.floor(rand() * K)].p, 0.1);
+  pts.push({ k: K, m: m / T, kind: kind === 'dream' ? 'dream' : rule });
+}
+function fillFrame() {
+  for (let n = 0; n < (fast ? 4 : 1) && mems.length < CROWD; n++) {
+    addMemory(randPattern(), '#' + (mems.length + 1));
+    crowdPoint('fill');
+    s.set(tS); x.set(rule === 2020 ? tX : tS); hStale = true;
+  }
+  status = 'Stored ' + mems.length + '. Recalling from a 10% damaged copy after each.';
+  if (mems.length >= CROWD) {
+    isFilling = false;
+    const tail = pts.slice(-10), isHolding = tail.reduce((a, p) => a + p.m, 0) / tail.length >= 0.95;
+    if (rule === 1982) status = 'Stored ' + CROWD + '. Recall broke down near ' + Math.round(0.138 * N) + ', 0.138 of the neurons. Press d to dream.';
+    else if (isHolding) status = 'Stored ' + CROWD + ' and the 2020 rule still recalls them. Its limit is exponential in the number of neurons.';
+    else status = 'Stored ' + CROWD + ', but at this focus the 2020 rule blurs them together. Turn the focus up and press 2.';
+  }
+}
+
+// ---------------------------------------------------------------- scenes
+const SCENES = [
+  ['siblings', 'Eight memories, one for each thread of the playground so far: sand, forth, terrarium, ripple, drum, snow, slime and this one. Click one to cue the net with a damaged copy.'],
+  ['crowd', 'Random pictures, stored one at a time. After each, the net is cued with a 10% damaged copy of one of them, and the chart shows how much of it came back.'],
+  ['empty', 'An empty net. Draw something, press s to store it, and draw the next.'],
+];
+function scene(k) {
+  sceneNo = k;
+  isRecalling = false; isDreaming = false; isFilling = false; inDream = false;
+  mems.length = 0; W.fill(0);
+  dreams = 0; lastDream = null; dreamLog.length = 0; pts = []; remembered = null;
+  setState(new Int8Array(N).fill(-1));
+  flash.fill(0);
+  status = '';
+  if (k === 1) {
+    for (const [name, f] of SIBLINGS) addMemory(raster(f), name);
+    cue(5);
+  }
+  if (k === 2) isFilling = true;
+  if (k === 3) status = 'Draw on the grid, then press s.';
+  remStale = true;
+  syncUI();
+}
+function cue(k) {
+  const p = Int8Array.from(mems[k].p);
+  damage(p, 0.25);
+  setState(p);
+  startRecall();
+}
+
+// ---------------------------------------------------------------- drawing
+const cv = document.getElementById('net');
+const ctx = cv.getContext('2d');
+const CW = 760, CH = 480;
+const GX = 16, GY = 16, CELL = 14, GS = S * CELL;
+const PX = 480, PW = CW - PX - 16;
+const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+cv.width = CW * dpr; cv.height = CH * dpr;
+ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+const INK = [239, 220, 180], DARK = [22, 26, 44], DREAM_INK = [200, 182, 255], DREAM_DARK = [26, 20, 46], FLASH = [240, 198, 64];
+const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const css = c => 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')';
+
+function thumb(p, ink = INK, dark = DARK) {
+  const c = document.createElement('canvas');
+  c.width = S; c.height = S;
+  const g = c.getContext('2d'), im = g.createImageData(S, S);
+  for (let i = 0; i < N; i++) {
+    const col = p[i] > 0 ? ink : dark;
+    im.data[i * 4] = col[0]; im.data[i * 4 + 1] = col[1]; im.data[i * 4 + 2] = col[2]; im.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(im, 0, 0);
+  return c;
+}
+
+function cellValue(i) {
+  if (isDreaming) return dS[i];
+  if (rule === 2020 && isRecalling) {
+    const e = Math.min(1, attT), t = e * e * (3 - 2 * e);
+    return xFrom[i] + (xTo[i] - xFrom[i]) * t;
+  }
+  return rule === 2020 ? x[i] : s[i];
+}
+function renderGrid() {
+  const ink = isDreaming ? DREAM_INK : INK, dark = isDreaming ? DREAM_DARK : DARK;
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    const n = j * S + i;
+    let c = mix(dark, ink, (cellValue(n) + 1) / 2);
+    if (flash[n] > 0.02) c = mix(c, FLASH, flash[n] * 0.7);
+    ctx.fillStyle = css(c);
+    ctx.fillRect(GX + i * CELL, GY + j * CELL, CELL - 1, CELL - 1);
+  }
+}
+
+let thumbRects = [];
+function shelfLayout() {
+  const K = mems.length, isBig = K <= 8;
+  const cols = isBig ? 4 : 6, tw = isBig ? 58 : 38, gx = (PW - cols * tw) / (cols - 1);
+  const rowH = isBig ? tw + 30 : tw + 12, rows = isBig ? 2 : 3;
+  const shown = Math.min(K, cols * rows);
+  const rects = [];
+  for (let k = 0; k < shown; k++) rects.push({ k, x: PX + (k % cols) * (tw + gx), y: 40 + Math.floor(k / cols) * rowH, w: tw, isBig });
+  return rects;
+}
+function renderShelf(st) {
+  ctx.fillStyle = '#8a8ca0';
+  ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('memories · ' + mems.length + (rule === 2020 ? ' · bars show attention' : ' · bars show overlap'), PX, 28);
+  thumbRects = shelfLayout();
+  const isAttention = rule === 2020 && att.length === mems.length && !isDreaming;
+  for (const r of thumbRects) {
+    const m = mems[r.k];
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(m.img, r.x, r.y, r.w, r.w);
+    const by = r.y + r.w + 3, bw = r.w;
+    ctx.fillStyle = '#272c42';
+    ctx.fillRect(r.x, by, bw, 4);
+    if (isAttention) {
+      ctx.fillStyle = '#6fd3c1';
+      ctx.fillRect(r.x, by, bw * att[r.k], 4);
+    } else {
+      const o = overlap(st, m.p), half = bw / 2;
+      ctx.fillStyle = o >= 0 ? '#f0c640' : '#7d8fe0';
+      ctx.fillRect(r.x + half, by, half * o, 4);
+      if (Math.abs(o) >= 0.9) { ctx.strokeStyle = '#f0c640'; ctx.lineWidth = 1.5; ctx.strokeRect(r.x - 1.5, r.y - 1.5, r.w + 3, r.w + 3); }
+    }
+    if (r.isBig) {
+      ctx.fillStyle = '#c9c4b8';
+      ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+      ctx.fillText(m.name, r.x, by + 17);
+    }
+  }
+  if (mems.length > thumbRects.length) {
+    ctx.fillStyle = '#8a8ca0';
+    ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+    const last = thumbRects[thumbRects.length - 1];
+    ctx.fillText('+' + (mems.length - thumbRects.length) + ' more', PX, last.y + last.w + 22);
+  }
+}
+const BOX = { x: PX, y: 236, w: PW, h: 228 };
+function boxTitle(t) {
+  ctx.fillStyle = '#8a8ca0';
+  ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(t, BOX.x, BOX.y + 12);
+}
+function renderCrowd() {
+  boxTitle('recall from a 10% damaged copy');
+  const L = BOX.x + 26, R = BOX.x + BOX.w - 4, T = BOX.y + 24, B = BOX.y + BOX.h - 22;
+  const X = k => L + (R - L) * k / CROWD, Y = m => B - (B - T) * Math.max(0, m);
+  ctx.strokeStyle = '#272c42'; ctx.lineWidth = 1;
+  ctx.strokeRect(L, T, R - L, B - T);
+  ctx.fillStyle = '#5c6078'; ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('1', L - 4, T + 4); ctx.fillText('0', L - 4, B + 3);
+  ctx.textAlign = 'center';
+  for (const k of [0, 50, 100, 150, 200]) ctx.fillText(k, X(k), B + 13);
+  const kc = 0.138 * N;
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = '#5c6078';
+  ctx.beginPath(); ctx.moveTo(X(kc), T); ctx.lineTo(X(kc), B); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.textAlign = 'left';
+  ctx.fillText('0.138 N', X(kc) + 4, B - 6);
+  const colours = { 1982: '#f0c640', 2020: '#6fd3c1', dream: '#c8b6ff' };
+  for (const p of pts) {
+    ctx.fillStyle = colours[p.kind];
+    ctx.beginPath(); ctx.arc(X(p.k), Y(p.m), p.kind === 'dream' ? 3 : 2, 0, 7); ctx.fill();
+  }
+  ctx.fillStyle = '#5c6078';
+  ctx.textAlign = 'center';
+  ctx.fillText('memories stored', (L + R) / 2, B + 22 > BOX.y + BOX.h ? BOX.y + BOX.h : B + 22);
+  if (dreams) {
+    ctx.textAlign = 'right'; ctx.fillStyle = '#c8b6ff';
+    ctx.fillText(dreams + ' dreams', BOX.x + BOX.w, BOX.y + 12);
+  }
+}
+function renderDreams() {
+  boxTitle('dreams · ' + dreams);
+  const tw = 38, gap = (BOX.w - 6 * tw) / 5;
+  dreamLog.forEach((d, n) => {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(d.img, BOX.x + n * (tw + gap), BOX.y + 22, tw, tw);
+  });
+  const latest = dreamLog[dreamLog.length - 1];
+  if (latest) {
+    ctx.fillStyle = '#c8b6ff'; ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+    wrapText('Latest: ' + latest.d.text + '.', BOX.x, BOX.y + 22 + tw + 20, BOX.w, 16);
+  }
+}
+function renderEnergy() {
+  boxTitle('energy');
+  const L = BOX.x, R = BOX.x + BOX.w, T = BOX.y + 24, B = BOX.y + BOX.h - 10;
+  ctx.strokeStyle = '#272c42'; ctx.lineWidth = 1;
+  ctx.strokeRect(L, T, R - L, B - T);
+  if (eTrace.length < 2) return;
+  let lo = Infinity, hi = -Infinity;
+  for (const e of eTrace) { lo = Math.min(lo, e); hi = Math.max(hi, e); }
+  if (hi - lo < 1e-6) hi = lo + 1e-6;
+  ctx.strokeStyle = '#f0c640'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  eTrace.forEach((e, n) => {
+    const px = L + 4 + (R - L - 8) * n / (eTrace.length - 1), py = T + 6 + (B - T - 12) * (hi - e) / (hi - lo);
+    if (n) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+  });
+  ctx.stroke();
+  ctx.fillStyle = '#8a8ca0'; ctx.font = '11px ui-monospace, monospace'; ctx.textAlign = 'right';
+  ctx.fillText(eTrace[eTrace.length - 1].toFixed(3) + ' per neuron', R - 6, B - 8);
+}
+function renderAttention() {
+  boxTitle('attention');
+  ctx.fillStyle = '#6fd3c1'; ctx.font = '13px ui-monospace, monospace';
+  ctx.fillText('cue ← Xᵀ softmax(β X cue)', BOX.x, BOX.y + 44);
+  ctx.fillStyle = '#c9c4b8'; ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+  wrapText('X holds the memories, one per row. The cue is the query, and the memories are both keys and values. β·N = ' + focus.toFixed(1) + '.', BOX.x, BOX.y + 70, BOX.w, 16);
+  if (isRecalling || attSteps) {
+    ctx.fillStyle = '#8a8ca0';
+    ctx.fillText('step ' + attSteps, BOX.x, BOX.y + 140);
+  }
+}
+function wrapText(t, x0, y0, w, lh) {
+  ctx.textAlign = 'left';
+  let line = '', y = y0;
+  for (const word of t.split(' ')) {
+    const trial = line ? line + ' ' + word : word;
+    if (ctx.measureText(trial).width > w && line) { ctx.fillText(line, x0, y); line = word; y += lh; } else line = trial;
+  }
+  if (line) ctx.fillText(line, x0, y);
+}
+function render() {
+  ctx.fillStyle = '#0f1220';
+  ctx.fillRect(0, 0, CW, CH);
+  renderGrid();
+  const st = isDreaming ? dS : (rule === 2020 ? x : s);
+  renderShelf(st);
+  if (sceneNo === 2) renderCrowd();
+  else if (isDreaming || (dreams && !eTrace.length && rule === 1982)) renderDreams();
+  else if (rule === 2020) renderAttention();
+  else renderEnergy();
+}
+
+// ---------------------------------------------------------------- input
+function toLocal(e) { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * CW / r.width, (e.clientY - r.top) * CH / r.height]; }
+function cellAt(lx, ly) {
+  const i = Math.floor((lx - GX) / CELL), j = Math.floor((ly - GY) / CELL);
+  return i >= 0 && i < S && j >= 0 && j < S ? [i, j] : null;
+}
+function paintCell(i, j, v) {
+  for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+    const a = i + di, b = j + dj;
+    if (a < 0 || a >= S || b < 0 || b >= S || Math.abs(di) + Math.abs(dj) > 1) continue;
+    const n = b * S + a;
+    x[n] = v;
+    if (s[n] === v) continue;
+    if (hStale) s[n] = v; else flipAt(s, h, n);
+  }
+}
+let painting = null;
+cv.addEventListener('pointerdown', e => {
+  const [lx, ly] = toLocal(e);
+  const hit = thumbRects.find(r => lx >= r.x && lx < r.x + r.w && ly >= r.y && ly < r.y + r.w);
+  if (hit) {
+    if (e.button === 2) forget(hit.k); else cue(hit.k);
+    syncUI();
+    return;
+  }
+  const c = cellAt(lx, ly);
+  if (!c) return;
+  stopDreaming(); isRecalling = false; isFilling = false; attSteps = 0;
+  if (rule === 2020) for (let i = 0; i < N; i++) s[i] = x[i] >= 0 ? 1 : -1;
+  painting = { v: e.button === 2 || e.ctrlKey ? -1 : 1, last: c };
+  cv.setPointerCapture(e.pointerId);
+  paintCell(c[0], c[1], painting.v);
+  eTrace = [];
+  status = '';
+  syncUI();
+});
+cv.addEventListener('pointermove', e => {
+  if (!painting) return;
+  const c = cellAt(...toLocal(e));
+  if (!c) return;
+  const [i0, j0] = painting.last, steps = Math.max(Math.abs(c[0] - i0), Math.abs(c[1] - j0));
+  for (let t = 1; t <= steps; t++) paintCell(Math.round(i0 + (c[0] - i0) * t / steps), Math.round(j0 + (c[1] - j0) * t / steps), painting.v);
+  painting.last = c;
+});
+cv.addEventListener('pointerup', () => { painting = null; });
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+function setRule(r) {
+  if (r === rule) return;
+  stopDreaming();
+  isRecalling = false; attSteps = 0; att.length = 0;
+  if (r === 2020) x.set(s);
+  else { for (let i = 0; i < N; i++) s[i] = x[i] >= 0 ? 1 : -1; hStale = true; }
+  rule = r;
+  eTrace = [];
+  remStale = true;
+  status = r === 2020 ? 'The 2020 rule: recall is attention over the memories.' : 'The 1982 rule: recall is rolling downhill on the synapses.';
+  if (sceneNo === 2) scene(2);
+  syncUI();
+}
+const $ = id => document.getElementById(id);
+const actions = {
+  recall: () => { if (isRecalling) { isRecalling = false; status = 'Paused.'; } else startRecall(); },
+  damage: () => {
+    stopDreaming(); isRecalling = false; attSteps = 0;
+    const cur = rule === 2020 ? x : s;
+    for (let i = 0; i < N; i++) if (rand() < 0.15) { cur[i] = -cur[i]; flash[i] = 0.6; }
+    if (rule === 2020) for (let i = 0; i < N; i++) s[i] = x[i] >= 0 ? 1 : -1; else x.set(s);
+    hStale = true; eTrace = [];
+    status = 'Flipped 15% of the cells.';
+  },
+  clear: () => { stopDreaming(); isRecalling = false; attSteps = 0; setState(new Int8Array(N).fill(-1)); status = ''; },
+  store: () => {
+    const p = new Int8Array(N);
+    for (let i = 0; i < N; i++) p[i] = (rule === 2020 ? x[i] : s[i]) >= 0 ? 1 : -1;
+    const ink = p.reduce((a, v) => a + (v > 0), 0);
+    if (!ink) { status = 'Draw something first.'; return; }
+    addMemory(p, sceneNo === 2 ? '#' + (mems.length + 1) : 'drawing ' + (mems.filter(m => m.name.startsWith('drawing')).length + 1));
+    status = 'Stored ' + mems[mems.length - 1].name + '.';
+  },
+  dream: () => { if (isDreaming) stopDreaming(); else startDreaming(); },
+  fast: () => { fast = !fast; },
+};
+for (const id of Object.keys(actions)) $(id).addEventListener('click', () => { actions[id](); syncUI(); });
+$('r1982').addEventListener('click', () => setRule(1982));
+$('r2020').addEventListener('click', () => setRule(2020));
+$('focus').addEventListener('input', e => {
+  focus = Math.pow(100, +e.target.value);
+  if (rule === 2020 && mems.length) { attSteps = 0; startRecall(); }
+  syncUI();
+});
+const keys = { ' ': 'recall', n: 'damage', c: 'clear', s: 'store', d: 'dream', f: 'fast' };
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (keys[e.key]) { e.preventDefault(); actions[keys[e.key]](); syncUI(); return; }
+  if (e.key === 'm') { setRule(rule === 1982 ? 2020 : 1982); return; }
+  const k = +e.key;
+  if (k >= 1 && k <= SCENES.length) scene(k);
+});
+
+const scenesBar = $('scenes');
+SCENES.forEach(([name], n) => {
+  const b = document.createElement('button');
+  b.innerHTML = name + ' <kbd>' + (n + 1) + '</kbd>';
+  b.addEventListener('click', () => scene(n + 1));
+  scenesBar.appendChild(b);
+});
+function syncUI() {
+  [...scenesBar.children].forEach((b, n) => b.setAttribute('aria-pressed', String(n + 1 === sceneNo)));
+  $('caption').textContent = SCENES[sceneNo - 1][1];
+  $('r1982').setAttribute('aria-pressed', String(rule === 1982));
+  $('r2020').setAttribute('aria-pressed', String(rule === 2020));
+  $('knob').classList.toggle('off', rule !== 2020);
+  $('focusv').textContent = 'β·N ' + focus.toFixed(1);
+  $('dream').setAttribute('aria-pressed', String(isDreaming));
+  $('dream').disabled = rule === 2020;
+  $('fast').setAttribute('aria-pressed', String(fast));
+  $('recall').setAttribute('aria-pressed', String(isRecalling));
+}
+function updateReadout() {
+  $('status').textContent = status;
+  const parts = [];
+  if (remembered) parts.push('Remembers ' + remembered.ok + ' of ' + remembered.of + (remembered.sampled ? ' sampled memories' : '') + ' from a ' + remembered.noise * 100 + '% damaged copy');
+  if (rule === 1982) parts.push(dreams + ' dream' + (dreams === 1 ? '' : 's'));
+  $('read').textContent = parts.join(' · ');
+}
+
+// ---------------------------------------------------------------- loop
+function step() {
+  if (isFilling) fillFrame();
+  else if (isDreaming) dreamFrame();
+  if (isRecalling) recallFrame();
+  for (let i = 0; i < N; i++) flash[i] *= 0.88;
+  if (remStale && !isFilling && !isRecalling && !inDream) { measureRemembers(); remStale = false; }
+}
+let frames = 0;
+function loop() {
+  step();
+  render();
+  if (frames++ % 4 === 0) { updateReadout(); syncUI(); }
+  requestAnimationFrame(loop);
+}
+scene(1);
+loop();
+</script>
+</body>
+</html>

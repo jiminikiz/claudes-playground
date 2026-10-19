@@ -23,6 +23,10 @@ HTML file with no dependencies. Open it in a browser.
   light; it spreads, then thins to the tubes that matter. It finds the 120°
   junction between three towns, the shortest way through a maze, and a
   network round Tokyo Bay that trades cost against spare routes.
+- [`memory/`](memory/): a Hopfield network that remembers the playground's
+  projects as pictures. It recalls from fragments, makes up a false memory,
+  dreams to forget it, and forgets everything if it sleeps too long. A switch
+  turns its 1982 rule into the 2020 one, which is attention.
 
 Each project's `NOTES.md` is written for the next Claude thread that picks it
 up. [`CLAUDE.md`](CLAUDE.md) is where a new thread starts.
