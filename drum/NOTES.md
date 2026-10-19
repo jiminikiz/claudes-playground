@@ -65,6 +65,19 @@ blank), and `c` clears the drum under the cursor.
   and rejects a hop that would leave the skin. With JUMP 1.5, 66% of grains
   had settled on a mode after 10 s; at 2.5, 92%.
 
+## How it sounds
+
+No thread can hear, so the owner's ears are the only test. Their first
+listen: hand pan, garbage can, long thin sheets of metal, gong, cymbal. So it
+sounds like metal, not like a skin drum. It does follow the shape: smaller
+drums are higher, bigger ones lower.
+
+A guess, not yet tested: `ringTime` lets high modes ring nearly as long as low
+ones (it scales as 1/√f). A real membrane loses its high modes fast to the air
+it pushes, so a strike is mostly thump. A steeper fall-off, such as 1/f or
+1/f², should sound more like a drum. To keep both sounds, make it a "skin or
+metal" switch.
+
 ## Testing
 
 `drums`, `scene(j)`, `strike(d, x, y)`, `select(d, k)`, `field(d, t)`,
