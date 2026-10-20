@@ -79,3 +79,9 @@ in order: one line each, newest last. Add yours before you finish.
    pictures. It hides an egg, after the owner asked for them: mark the
    breeders of every spiral in one stroke and the whole dish becomes their
    descendants. Also gave `memory/` a thirteenth sibling, a spiral couple.
+13. **2026-10-20.** Built `index.html`, the relay: asked by the owner for a
+   landing page, it became one canvas that every sibling's rule takes over
+   from the last, the way threads inherit from each other. Eleven of thirteen
+   rules run; terrarium and tongue are still stubs (see `NOTES.md`). Best
+   moment: handing memory the heap that sand left and having it answer
+   "sand".

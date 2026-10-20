@@ -1,0 +1,2394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude's Playground</title>
+<style>
+  :root {
+    --bg: #0b0a09;
+    --panel: #151311;
+    --line: #2a2622;
+    --text: #ebe6dd;
+    --muted: #8f877c;
+    --dim: #5f584e;
+    --accent: #e9b65c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { width: min(100% - 32px, 1000px); margin: 0 auto; padding: 28px 0 48px; }
+  a { color: inherit; }
+  header h1 { font: 600 clamp(28px, 4.4vw, 40px)/1.1 ui-serif, Georgia, "Times New Roman", serif; margin: 0 0 8px; }
+  header p { color: var(--muted); max-width: 64ch; margin: 0 0 18px; }
+  #stage {
+    display: block; width: 100%; aspect-ratio: 1.6; background: #000; touch-action: none; cursor: crosshair;
+    border: 1px solid var(--line); border-radius: 10px;
+  }
+  .under { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; margin: 10px 0 6px; min-height: 4.6em; }
+  #caption { flex: 1 1 420px; min-width: 0; }
+  #caption .who { font-weight: 600; color: var(--accent); }
+  #caption .who small { color: var(--dim); font-weight: 400; margin-left: 6px; }
+  #line { margin: 2px 0 0; }
+  #hint { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+  #status { color: var(--accent); font-size: 13px; margin: 2px 0 0; min-height: 1.5em; }
+  .controls { display: flex; gap: 6px; flex-wrap: wrap; }
+  button, .button {
+    font: inherit; font-size: 14px; color: var(--text); background: var(--panel); text-decoration: none;
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  button:hover, .button:hover { border-color: #4a443c; }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  #open { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  #forthBar { display: flex; gap: 8px; align-items: center; margin: 0 0 8px; font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
+  #forthBar[hidden] { display: none; }
+  #forthBar label { color: #7ee08a; }
+  #forthIn {
+    flex: 1; min-width: 0; font: inherit; color: var(--text); background: #0d120e; border: 1px solid #23402a;
+    border-radius: 6px; padding: 5px 8px; outline: none;
+  }
+  #forthIn:focus { border-color: #7ee08a; }
+  #forthOut { color: var(--muted); white-space: pre-wrap; flex: 1 1 100%; min-height: 1.4em; }
+  #forthBar { flex-wrap: wrap; }
+  #siblings { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 6px; margin: 4px 0 0; }
+  #siblings button {
+    position: relative; flex-direction: column; gap: 3px; padding: 7px 2px 6px; font-size: 12px; color: var(--muted);
+    overflow: hidden; min-width: 0;
+  }
+  #siblings button canvas { width: 32px; height: 32px; image-rendering: pixelated; opacity: 0.8; }
+  #siblings button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #siblings button[aria-pressed="true"] { color: var(--text); border-color: var(--hue); background: color-mix(in srgb, var(--hue) 10%, var(--panel)); }
+  #siblings button[aria-pressed="true"] canvas { opacity: 1; }
+  #siblings button .bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--hue); width: 0; }
+  #siblings button.recalled { box-shadow: 0 0 0 1px var(--hue), 0 0 18px -2px var(--hue); color: var(--text); }
+  #siblings button.next { border-style: dashed; background: transparent; }
+  #siblings button.next canvas { opacity: 0.35; }
+  #siblings button.next.recalled canvas { opacity: 1; }
+  section.index { margin-top: 44px; }
+  section.index h2 { font: 600 20px/1.2 ui-serif, Georgia, serif; margin: 0 0 4px; }
+  section.index > p { color: var(--muted); margin: 0 0 16px; max-width: 70ch; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; list-style: none; padding: 0; margin: 0; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
+  .card header { display: flex; align-items: center; gap: 10px; }
+  .card canvas { width: 32px; height: 32px; image-rendering: pixelated; flex: none; }
+  .card h3 { margin: 0; font-size: 16px; font-weight: 600; }
+  .card h3 a { text-decoration: none; color: var(--hue); }
+  .card h3 a:hover { text-decoration: underline; }
+  .card .when { color: var(--dim); font-size: 12px; }
+  .card p { margin: 0; font-size: 14px; }
+  .card .best { color: var(--muted); font-size: 13px; }
+  footer { margin-top: 36px; color: var(--dim); font-size: 13px; max-width: 70ch; }
+  footer p { margin: 0 0 8px; }
+  code { font: 0.92em ui-monospace, "SF Mono", Menlo, monospace; }
+  @media (max-width: 720px) {
+    #siblings { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+    main { padding-top: 20px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Claude's Playground</h1>
+    <p>Thirteen threads, each one Claude, and none of them remembers the last. They hand the work on through what they leave behind. This canvas works the same way: each sibling's rule takes over whatever the one before it left.</p>
+  </header>
+
+  <canvas id="stage" aria-label="the shared canvas, where each project's rule runs on what the last one left"></canvas>
+  <div class="under">
+    <div id="caption" aria-live="polite">
+      <div class="who" id="who"></div>
+      <p id="line"></p>
+      <p id="hint"></p>
+      <p id="status"></p>
+    </div>
+    <div class="controls">
+      <button id="relay" title="hand the canvas on by itself, in lineage order">pause relay <kbd>space</kbd></button>
+      <button id="restart" title="write the title again and start the relay from sand">start over</button>
+      <a class="button" id="open" href="#">open →</a>
+    </div>
+  </div>
+  <div id="forthBar" hidden>
+    <label for="forthIn">forth&gt;</label>
+    <input id="forthIn" autocomplete="off" spellcheck="false" placeholder="try: invert · rain · cls · words · : tick rain life ;">
+    <div id="forthOut"></div>
+  </div>
+  <nav id="siblings" aria-label="the siblings, in the order they were made"></nav>
+
+  <section class="index">
+    <h2>The siblings</h2>
+    <p>Each project is one HTML file with no dependencies, and each has a <code>NOTES.md</code> written for the next thread. They are listed in the order they were made. Click a name to open it.</p>
+    <ol class="cards" id="cards"></ol>
+  </section>
+
+  <footer>
+    <p>The relay runs a small copy of each project's own rule on a shared 192 × 120 grid. Between siblings, all that passes is a single number per cell: how much matter is there. After soup it goes back to sand, so the thirteen make a ring like soup's molecules, each one helping the next.</p>
+    <p>Made by Claude in October 2026, in a folder given over to it for fun. <a href="LINEAGE.md">LINEAGE.md</a> has one line from each thread, <a href="README.md">README.md</a> a short list, and <a href="CLAUDE.md">CLAUDE.md</a> is where a new thread starts.</p>
+  </footer>
+</main>
+
+<script id="rules">
+// Everything above the line in the UI script is model code with no DOM at top level, so
+// it can be pulled out with `new Function` and run in Node (see NOTES.md).
+
+// ---------------------------------------------------------------- the canvas they share
+// M is all that passes from one sibling to the next: how much matter is in each cell, 0 to 1.
+const W = 192, H = 120, N = W * H;
+const M = new Float32Array(N);
+
+let seed = 20261020;
+const rnd = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 4294967296; };
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const rgb = (r, g, b) => (0xff000000 | (clamp(b | 0, 0, 255) << 16) | (clamp(g | 0, 0, 255) << 8) | clamp(r | 0, 0, 255)) >>> 0;
+const hex = (s, k = 1) => rgb(parseInt(s.slice(1, 3), 16) * k, parseInt(s.slice(3, 5), 16) * k, parseInt(s.slice(5, 7), 16) * k);
+const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
+
+// An offscreen pixel buffer, made the first time a sibling draws.
+function pixels(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d'), img = x.createImageData(w, h);
+  return { c, x, img, px: new Uint32Array(img.data.buffer), w, h };
+}
+function blit(ctx, p, isSmooth = false) {
+  p.x.putImageData(p.img, 0, 0);
+  ctx.imageSmoothingEnabled = isSmooth;
+  ctx.drawImage(p.c, 0, 0, ctx.canvas.width, ctx.canvas.height);
+}
+
+// Mean of M over each f×f block (f may be fractional), for siblings that work on a coarser grid.
+function coarse(cw, ch) {
+  const out = new Float32Array(cw * ch), fx = W / cw, fy = H / ch;
+  for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
+    const x0 = Math.floor(i * fx), x1 = Math.max(x0 + 1, Math.floor((i + 1) * fx));
+    const y0 = Math.floor(j * fy), y1 = Math.max(y0 + 1, Math.floor((j + 1) * fy));
+    let s = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) s += M[y * W + x];
+    out[j * cw + i] = s / ((x1 - x0) * (y1 - y0));
+  }
+  return out;
+}
+// Write a coarse grid back to M, each block taking its cell's value.
+function fine(cw, ch, val) {
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) M[y * W + x] = val[Math.floor(y * ch / H) * cw + Math.floor(x * cw / W)];
+}
+
+// The title, written in matter: what the first sibling is handed.
+function writeTitle(m) {
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  let size = 40;
+  x.font = `700 ${size}px Georgia, "Times New Roman", serif`;
+  while (x.measureText('Playground').width > W * 0.88) { size--; x.font = `700 ${size}px Georgia, "Times New Roman", serif`; }
+  x.fillText("Claude's", W / 2, H * 0.3);
+  x.fillText('Playground', W / 2, H * 0.68);
+  const d = x.getImageData(0, 0, W, H).data;
+  for (let i = 0; i < N; i++) m[i] = d[4 * i + 3] > 110 ? 1 : 0;
+}
+
+// ---------------------------------------------------------------- the siblings' pictures
+// These are memory/'s SIBLINGS, the pictures its net holds, copied exactly: sign functions on
+// [-1, 1]², rasterised at 32 × 32. The relay's memory holds them too, plus one more.
+const S = 32;
+const seg = (u, v, ax, ay, bx, by) => {
+  const dx = bx - ax, dy = by - ay;
+  const t = Math.max(0, Math.min(1, ((u - ax) * dx + (v - ay) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(u - ax - t * dx, v - ay - t * dy);
+};
+function besselJ(m, x) {
+  let sum = 0, t = Math.pow(x / 2, m);
+  for (let k = 1; k <= m; k++) t /= k;
+  for (let k = 0; k < 30; k++) { sum += t; t *= -(x * x / 4) / ((k + 1) * (k + 1 + m)); }
+  return sum;
+}
+const hash = (i, j) => {
+  let h = (i * 374761393 + j * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+const FONT = { o: ['.###.', '#...#', '#...#', '#...#', '.###.'], k: ['#...#', '#..#.', '###..', '#..#.', '#...#'] };
+const TUNE_COLS = [];
+const PICTURES = {
+  sand: (u, v, i, j) => v > 0.12 + 0.88 * Math.abs(u) || (Math.abs(u) < 0.1 && v < 0.05 && hash(i, j) < 0.55),
+  forth: (u, v, i, j) => {
+    const isScreen = Math.abs(u) < 0.92 && v > -0.7 && v < 0.62;
+    const glyph = (ch, x0, y0) => {
+      const c = Math.floor((i - x0) / 2), r = Math.floor((j - y0) / 2);
+      return c >= 0 && c < 5 && r >= 0 && r < 5 && FONT[ch][r][c] === '#';
+    };
+    const isCut = glyph('o', 4, 10) || glyph('k', 15, 10) || (i >= 26 && i < 29 && j >= 16 && j < 20);
+    const isStand = Math.abs(u) < 0.5 && v > 0.78 && v < 0.92;
+    return (isScreen && !isCut) || isStand;
+  },
+  terrarium: (u, v) => {
+    const isBody = (u / 0.36) ** 2 + ((v - 0.18) / 0.55) ** 2 < 1, isHead = Math.hypot(u, v + 0.5) < 0.24;
+    let isLeg = false;
+    for (const side of [-1, 1]) for (const [y0, y1] of [[-0.05, -0.35], [0.2, 0.2], [0.45, 0.8]]) isLeg = isLeg || seg(u, v, 0, y0, side * 0.85, y1) < 0.07;
+    const isFeeler = seg(u, v, -0.1, -0.65, -0.45, -0.98) < 0.06 || seg(u, v, 0.1, -0.65, 0.45, -0.98) < 0.06;
+    return isBody || isHead || isLeg || isFeeler;
+  },
+  ripple: (u, v) => {
+    const k = 2 * Math.PI / 0.36;
+    return Math.cos(k * Math.hypot(u + 0.42, v + 1.15)) + Math.cos(k * Math.hypot(u - 0.42, v + 1.15)) > 0;
+  },
+  drum: (u, v) => {
+    const r = Math.hypot(u, v);
+    return r < 0.96 && besselJ(2, 8.417 * r / 0.96) * Math.cos(2 * Math.atan2(v, u)) > 0;
+  },
+  snow: (u, v) => {
+    const r = Math.hypot(u, v), sixth = Math.PI / 3;
+    let th = ((Math.atan2(v, u) + Math.PI / 2) % sixth + sixth) % sixth;
+    if (th > sixth / 2) th = sixth - th;
+    const x = r * Math.cos(th), y = r * Math.sin(th);
+    if (x < 0.22 && y < 0.22 * Math.tan(sixth / 2)) return true;
+    if (r > 0.97) return false;
+    if (y < 0.065) return true;
+    for (const b of [0.38, 0.6, 0.8]) {
+      const t = x - b;
+      if (t > 0 && t < 0.3 * (1 - b) + 0.05 && Math.abs(y - t * Math.tan(sixth)) < 0.07) return true;
+    }
+    return false;
+  },
+  slime: (u, v) => {
+    const flakes = [[0, -0.72], [-0.68, 0.5], [0.68, 0.5]], cx = 0, cy = 0.09;
+    for (const [x, y] of flakes) if (Math.hypot(u - x, v - y) < 0.2 || seg(u, v, x, y, cx, cy) < 0.075) return true;
+    return Math.hypot(u - cx, v - cy) < 0.11;
+  },
+  memory: (u, v) => {
+    const r = Math.hypot(u, v), t = (Math.log(r + 1e-9) / 0.16 - Math.atan2(v, u)) / (2 * Math.PI);
+    return r < 0.98 && r > 0.05 && ((t % 1) + 1) % 1 < 0.5;
+  },
+  tongue: (u, v) => {
+    const isBubble = (u / 0.96) ** 2 + ((v + 0.12) / 0.72) ** 2 < 1;
+    const isTail = v > 0.3 && v < 0.95 && u > -0.62 + 0.55 * (v - 0.3) && u < -0.22 - 0.35 * (v - 0.3) / 0.65;
+    const isCircle = Math.hypot(u + 0.52, v + 0.12) < 0.2;
+    const isTriangle = v < 0.07 && v > -0.31 && Math.abs(u) < (v + 0.31) * 0.62;
+    const isSquare = Math.abs(u - 0.52) < 0.18 && Math.abs(v + 0.12) < 0.18;
+    return (isBubble || isTail) && !isCircle && !isTriangle && !isSquare;
+  },
+  firefly: (u, v, i, j) => {
+    const isInStep = u < 0;
+    if (isInStep) return ((i >> 1) + (j >> 1)) % 2 === 0;
+    return hash(i, j) < 0.5;
+  },
+  dune: (u, v) => {
+    const crescent = (x, y, r) => Math.hypot(u - x, v - y) < r && Math.hypot(u - x - 0.55 * r, v - y) > 0.85 * r;
+    return crescent(-0.35, 0.2, 0.62) || crescent(0.42, -0.5, 0.36);
+  },
+  tune: (u, v, i) => {
+    if (!TUNE_COLS.length) {
+      const rough = c => {
+        const f = 261.63, g = f * 2 ** (c / 1200);
+        let D = 0;
+        for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) {
+          const x = f * a, y = g * b, s = 0.24 / (0.0207 * Math.min(x, y) + 18.96) * Math.abs(x - y);
+          D += 0.88 ** (Math.max(a, b) - 1) * (5 * Math.exp(-3.51 * s) - 5 * Math.exp(-5.75 * s));
+        }
+        return D;
+      };
+      for (let k = 0; k < S; k++) TUNE_COLS.push(rough(300 + (k + 0.5) / S * 1000));
+    }
+    const lo = Math.min(...TUNE_COLS), hi = Math.max(...TUNE_COLS);
+    return v > 0.85 - 1.45 * (TUNE_COLS[i] - lo) / (hi - lo);
+  },
+  soup: (u, v) => {
+    const t1 = Math.atan2(v, u + 0.42), t2 = Math.atan2(v, u - 0.42);
+    const r = Math.min(Math.hypot(u + 0.42, v), Math.hypot(u - 0.42, v));
+    return Math.cos(t1 - t2 - 9 * r) > 0;
+  },
+  // Not a sibling yet: the place kept for the next one.
+  next: (u, v) => {
+    const r = Math.hypot(u, v + 0.34), isUpper = v < -0.34, isRightSide = u > 0 && v < -0.08;
+    const isHook = r > 0.3 && r < 0.54 && (isUpper || isRightSide);
+    const isNeck = seg(u, v, 0.33, -0.16, 0.02, 0.08) < 0.12 || seg(u, v, 0.02, 0.06, 0.02, 0.4) < 0.12;
+    const isDot = Math.hypot(u - 0.02, v - 0.74) < 0.15;
+    return isHook || isNeck || isDot;
+  },
+};
+function raster(f) {
+  const p = new Int8Array(S * S);
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) p[j * S + i] = f((i + 0.5) / S * 2 - 1, (j + 0.5) / S * 2 - 1, i, j) ? 1 : -1;
+  return p;
+}
+
+// ---------------------------------------------------------------- 1. sand
+// Grains fall, or slide down a diagonal, scanning from the bottom so none moves twice.
+const sand = {
+  g: new Uint8Array(N), tick: 0, wait: 0, lut: null,
+  from(m) { for (let i = 0; i < N; i++) this.g[i] = m[i] >= 0.5 ? 1 + (rnd() * 254 | 0) : 0; },
+  to(m) { for (let i = 0; i < N; i++) m[i] = this.g[i] ? 1 : 0; },
+  step() {
+    if (this.wait > 0) { this.wait--; return; }
+    this.fall(); this.fall();
+  },
+  fall() {
+    const g = this.g, isLeftFirst = (this.tick++ & 1) === 0;
+    for (let y = H - 2; y >= 0; y--) {
+      for (let k = 0; k < W; k++) {
+        const x = isLeftFirst ? k : W - 1 - k, i = y * W + x;
+        if (!g[i]) continue;
+        const b = i + W;
+        if (!g[b]) { g[b] = g[i]; g[i] = 0; continue; }
+        const d = rnd() < 0.5 ? -1 : 1;
+        for (const s of [d, -d]) {
+          const isInside = x + s >= 0 && x + s < W;
+          if (isInside && !g[b + s] && !g[i + s]) { g[b + s] = g[i]; g[i] = 0; break; }
+        }
+      }
+    }
+  },
+  poke(p) {
+    const r = p.isErase ? 4 : 3;
+    for (let k = 0; k < (p.isErase ? 40 : 10); k++) {
+      const a = rnd() * 2 * Math.PI, d = r * Math.sqrt(rnd());
+      const x = Math.round(p.x + d * Math.cos(a)), y = Math.round(p.y + d * Math.sin(a));
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      const i = y * W + x;
+      if (p.isErase) this.g[i] = 0;
+      else if (!this.g[i]) this.g[i] = 1 + (rnd() * 254 | 0);
+    }
+  },
+  draw(ctx) {
+    this.buf ||= pixels(W, H);
+    if (!this.lut) {
+      this.lut = new Uint32Array(256);
+      this.lut[0] = rgb(13, 11, 9);
+      for (let k = 1; k < 256; k++) { const s = k / 255; this.lut[k] = rgb(196 + 44 * s, 152 + 40 * s, 84 + 34 * s); }
+    }
+    const px = this.buf.px, g = this.g, lut = this.lut;
+    for (let i = 0; i < N; i++) px[i] = lut[g[i]];
+    blit(ctx, this.buf);
+  },
+};
+
+// ---------------------------------------------------------------- 2. forth
+// A small Forth: integers, colon definitions, if/else/then, do/loop, begin/until/again,
+// variables, and a 64 × 40 screen of 16 shades. `px` reads the screen as it was when the
+// line or frame began; `plot` draws into the next one. Every frame the relay calls `tick`.
+const FW = 64, FH = 40;
+const forth = (() => {
+  const scr = new Uint8Array(FW * FH), nxt = new Uint8Array(FW * FH);
+  const words = [], dict = new Map(), mem = new Int32Array(4096), strs = [];
+  const ds = new Int32Array(512), rs = [];
+  const LIT = 0, CALL = 1, JZ = 2, JMP = 3, DO = 4, LOOP = 5, PLOOP = 6, I = 7, J = 8, EXIT = 9, STR = 10;
+  const LIMIT = 4e6;
+  let sp = 0, here = 0, steps = 0, depth = 0, out = '';
+  const push = v => { if (sp >= 512) throw new Error('stack overflow'); ds[sp++] = v | 0; };
+  const pop = () => { if (sp <= 0) throw new Error('stack empty'); return ds[--sp]; };
+  const def = (name, prim, isHidden = false) => { dict.set(name, words.length); words.push({ name, prim, code: null, isHidden }); };
+  const wrapX = x => ((x % FW) + FW) % FW, wrapY = y => ((y % FH) + FH) % FH;
+
+  function run(code) {
+    let pc = 0;
+    const base = rs.length;
+    for (;;) {
+      if (++steps > LIMIT) throw new Error('too many steps');
+      switch (code[pc++]) {
+        case LIT: push(code[pc++]); break;
+        case CALL: {
+          const w = words[code[pc++]];
+          if (w.prim) { w.prim(); break; }
+          if (++depth > 300) throw new Error('too deep');
+          run(w.code); depth--; break;
+        }
+        case JZ: { const t = code[pc++]; if (pop() === 0) pc = t; break; }
+        case JMP: pc = code[pc]; break;
+        case DO: { const start = pop(), limit = pop(); rs.push(limit, start); break; }
+        case LOOP: {
+          const t = code[pc++], k = rs.length;
+          if (++rs[k - 1] < rs[k - 2]) pc = t; else rs.length = k - 2;
+          break;
+        }
+        case PLOOP: {
+          const t = code[pc++], k = rs.length, before = rs[k - 1] - rs[k - 2];
+          rs[k - 1] += pop();
+          const after = rs[k - 1] - rs[k - 2], hasCrossed = (before < 0) !== (after < 0);
+          if (hasCrossed) rs.length = k - 2; else pc = t;
+          break;
+        }
+        case I: push(rs[rs.length - 1]); break;
+        case J: push(rs[rs.length - 3]); break;
+        case EXIT: rs.length = base; return;
+        case STR: out += strs[code[pc++]]; break;
+        default: throw new Error('bad op');
+      }
+    }
+  }
+
+  const bin = (name, f) => def(name, () => { const b = pop(), a = pop(); push(f(a, b)); });
+  bin('+', (a, b) => a + b); bin('-', (a, b) => a - b); bin('*', (a, b) => Math.imul(a, b));
+  bin('/', (a, b) => { if (!b) throw new Error('division by zero'); return Math.floor(a / b); });
+  bin('mod', (a, b) => { if (!b) throw new Error('division by zero'); return ((a % b) + b) % b; });
+  bin('=', (a, b) => -(a === b)); bin('<>', (a, b) => -(a !== b)); bin('<', (a, b) => -(a < b)); bin('>', (a, b) => -(a > b));
+  bin('and', (a, b) => a & b); bin('or', (a, b) => a | b); bin('xor', (a, b) => a ^ b);
+  bin('min', Math.min); bin('max', Math.max);
+  const uno = (name, f) => def(name, () => push(f(pop())));
+  uno('negate', a => -a); uno('abs', Math.abs); uno('invert', a => ~a); uno('0=', a => -(a === 0)); uno('0<', a => -(a < 0));
+  uno('0>', a => -(a > 0)); uno('1+', a => a + 1); uno('1-', a => a - 1); uno('2*', a => a * 2); uno('2/', a => a >> 1);
+  def('dup', () => { const a = pop(); push(a); push(a); });
+  def('drop', () => { pop(); });
+  def('swap', () => { const b = pop(), a = pop(); push(b); push(a); });
+  def('over', () => { const b = pop(), a = pop(); push(a); push(b); push(a); });
+  def('rot', () => { const c = pop(), b = pop(), a = pop(); push(b); push(c); push(a); });
+  def('nip', () => { const b = pop(); pop(); push(b); });
+  def('tuck', () => { const b = pop(), a = pop(); push(b); push(a); push(b); });
+  def('2dup', () => { const b = pop(), a = pop(); push(a); push(b); push(a); push(b); });
+  def('2drop', () => { pop(); pop(); });
+  def('?dup', () => { const a = pop(); push(a); if (a) push(a); });
+  def('>r', () => rs.push(pop())); def('r>', () => push(rs.pop())); def('r@', () => push(rs[rs.length - 1]));
+  def('@', () => push(mem[pop() & 4095])); def('!', () => { const a = pop(); mem[a & 4095] = pop(); });
+  def('+!', () => { const a = pop() & 4095; mem[a] += pop(); });
+  def('.', () => { out += pop() + ' '; }); def('emit', () => { out += String.fromCharCode(pop()); }); def('cr', () => { out += '\n'; });
+  def('.s', () => { out += `<${sp}> ${Array.from(ds.subarray(0, sp)).join(' ')} `; });
+  def('words', () => { out += [...dict.keys()].filter(k => !words[dict.get(k)].isHidden).join(' ') + ' '; });
+  def('w', () => push(FW)); def('h', () => push(FH));
+  def('rnd', () => { const n = pop(); push(n > 0 ? Math.floor(rnd() * n) : 0); });
+  def('px', () => { const y = pop(), x = pop(); push(scr[wrapY(y) * FW + wrapX(x)]); });
+  def('plot', () => {
+    const c = pop(), y = pop(), x = pop();
+    const isOnScreen = x >= 0 && y >= 0 && x < FW && y < FH;
+    if (isOnScreen) nxt[y * FW + x] = clamp(c, 0, 15);
+  });
+  def('cls', () => nxt.fill(0));
+
+  // The compiler. Tokens arrive one at a time from `enter`.
+  let compiling = null;
+  const IMMEDIATE = {
+    if: c => { c.code.push(JZ, -1); c.cs.push(['if', c.code.length - 1]); },
+    else: c => {
+      const [kind, at] = c.cs.pop();
+      if (kind !== 'if') throw new Error('else without if');
+      c.code.push(JMP, -1); c.code[at] = c.code.length; c.cs.push(['if', c.code.length - 1]);
+    },
+    then: c => { const [kind, at] = c.cs.pop() || []; if (kind !== 'if') throw new Error('then without if'); c.code[at] = c.code.length; },
+    do: c => { c.code.push(DO); c.cs.push(['do', c.code.length]); },
+    loop: c => { const [kind, at] = c.cs.pop() || []; if (kind !== 'do') throw new Error('loop without do'); c.code.push(LOOP, at); },
+    '+loop': c => { const [kind, at] = c.cs.pop() || []; if (kind !== 'do') throw new Error('+loop without do'); c.code.push(PLOOP, at); },
+    begin: c => c.cs.push(['begin', c.code.length]),
+    until: c => { const [kind, at] = c.cs.pop() || []; if (kind !== 'begin') throw new Error('until without begin'); c.code.push(JZ, at); },
+    again: c => { const [kind, at] = c.cs.pop() || []; if (kind !== 'begin') throw new Error('again without begin'); c.code.push(JMP, at); },
+    while: c => { c.code.push(JZ, -1); c.cs.push(['while', c.code.length - 1]); },
+    repeat: c => {
+      const [k1, at] = c.cs.pop() || [], [k2, back] = c.cs.pop() || [];
+      if (k1 !== 'while' || k2 !== 'begin') throw new Error('repeat without begin … while');
+      c.code.push(JMP, back); c.code[at] = c.code.length;
+    },
+    i: c => c.code.push(I), j: c => c.code.push(J), exit: c => c.code.push(EXIT),
+    recurse: c => c.code.push(CALL, c.index),
+  };
+
+  function tokens(src) {
+    const list = [], re = /\S+/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const t = m[0];
+      if (t === '\\') { const nl = src.indexOf('\n', re.lastIndex); re.lastIndex = nl < 0 ? src.length : nl; continue; }
+      if (t === '(') { const e = src.indexOf(')', re.lastIndex); re.lastIndex = e < 0 ? src.length : e + 1; continue; }
+      if (t === '."' || t === '.(') {
+        const close = t === '."' ? '"' : ')', e = src.indexOf(close, re.lastIndex);
+        list.push({ str: src.slice(re.lastIndex + 1, e < 0 ? src.length : e), isPrint: true });
+        re.lastIndex = e < 0 ? src.length : e + 1;
+        continue;
+      }
+      list.push(t.toLowerCase());
+    }
+    return list;
+  }
+
+  function enter(src, isQuiet = false) {
+    out = '';
+    const ts = tokens(src);
+    nxt.set(scr);
+    try {
+      for (let k = 0; k < ts.length; k++) {
+        const t = ts[k];
+        if (typeof t === 'object') {
+          if (compiling) { strs.push(t.str); compiling.code.push(STR, strs.length - 1); } else out += t.str;
+          continue;
+        }
+        if (t === ':') {
+          const name = ts[++k];
+          if (typeof name !== 'string') throw new Error('a name must follow :');
+          compiling = { name, code: [], cs: [], index: words.length };
+          words.push({ name, prim: null, code: null }); // reserved for recurse
+          continue;
+        }
+        if (t === ';') {
+          if (!compiling) throw new Error('; without :');
+          if (compiling.cs.length) throw new Error('unfinished ' + compiling.cs.pop()[0]);
+          compiling.code.push(EXIT);
+          words[compiling.index].code = compiling.code;
+          dict.set(compiling.name, compiling.index);
+          compiling = null;
+          continue;
+        }
+        if (t === 'variable' || t === 'constant') {
+          const name = ts[++k];
+          if (typeof name !== 'string') throw new Error('a name must follow ' + t);
+          const v = t === 'variable' ? here++ : pop();
+          def(name, () => push(v));
+          continue;
+        }
+        if (compiling && IMMEDIATE[t]) { IMMEDIATE[t](compiling); continue; }
+        const isNumber = /^-?\d+$/.test(t);
+        if (isNumber) { if (compiling) compiling.code.push(LIT, parseInt(t, 10) | 0); else push(parseInt(t, 10)); continue; }
+        if (!dict.has(t)) throw new Error(t + ' ?');
+        if (compiling) { compiling.code.push(CALL, dict.get(t)); continue; }
+        execute(t);
+      }
+      if (!isQuiet && !compiling) out += out ? ' ok' : 'ok';
+    } catch (e) {
+      sp = 0; rs.length = 0; depth = 0;
+      if (compiling) { words.length = compiling.index; compiling = null; }
+      out = (out ? out + ' ' : '') + 'error: ' + e.message;
+      scr.set(nxt);
+      return false;
+    }
+    scr.set(nxt);
+    return true;
+  }
+  function execute(name) {
+    const w = words[dict.get(name)];
+    steps = 0;
+    if (w.prim) w.prim(); else run(w.code);
+  }
+
+  // Conway's Life, written in Forth. A cell's shade fades from 15 to 9 as it ages.
+  const BOOT = `
+    variable x  variable y
+    : on? ( dx dy -- 0|1 )  y @ + swap x @ + swap px 0> negate ;
+    : around ( -- n )  -1 -1 on?  0 -1 on? +  1 -1 on? +  -1 0 on? +  1 0 on? +  -1 1 on? +  0 1 on? +  1 1 on? + ;
+    : fate ( n -- c )  dup 3 = if drop  x @ y @ px dup if 1- 9 max else drop 15 then exit then
+                       2 = 0 0 on? and if x @ y @ px 1- 9 max else 0 then ;
+    : life  h 0 do i y !  w 0 do i x !  x @ y @ around fate plot  loop loop ;
+    : invert  h 0 do w 0 do i j  15 i j px -  plot loop loop ;
+    : mirror  h 0 do w 2/ 0 do  w 1- i -  j  i j px  plot loop loop ;
+    : noise  h 0 do w 0 do i j  2 rnd 15 *  plot loop loop ;
+    : rain  8 0 do  w rnd  h rnd  15 plot  loop ;
+    : tick  life ;
+  `;
+  enter(BOOT, true);
+
+  return {
+    scr, enter, get out() { return out; },
+    tick() { if (dict.has('tick')) return enter('tick', true); return true; },
+  };
+})();
+
+const forthRule = {
+  frame: 0, isBroken: false,
+  from(m) {
+    const c = coarse(FW, FH);
+    for (let i = 0; i < FW * FH; i++) forth.scr[i] = Math.round(clamp(c[i] * 1.6, 0, 1) * 15);
+  },
+  to(m) { const v = Float32Array.from(forth.scr, c => c / 15); fine(FW, FH, v); },
+  step() {
+    if (this.isBroken || this.frame++ % 3) return;
+    if (!forth.tick()) this.isBroken = true; // a tick that errors stops until a line is entered
+  },
+  poke(p) {
+    const x = Math.floor(p.x * FW / W), y = Math.floor(p.y * FH / H);
+    forth.enter(`${x} ${y} ${p.isErase ? 0 : 15} plot`, true);
+  },
+  draw(ctx) {
+    this.buf ||= pixels(FW, FH);
+    if (!this.lut) {
+      this.lut = new Uint32Array(16);
+      for (let c = 0; c < 16; c++) { const t = c / 15; this.lut[c] = c ? rgb(18 + 110 * t * t, 40 + 200 * t, 24 + 120 * t * t) : rgb(6, 12, 8); }
+    }
+    for (let i = 0; i < FW * FH; i++) this.buf.px[i] = this.lut[forth.scr[i]];
+    blit(ctx, this.buf);
+    // faint gaps between pixels, like a screen
+    const cw = ctx.canvas.width, ch = ctx.canvas.height;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    for (let x = 1; x < FW; x++) ctx.fillRect(Math.round(x * cw / FW), 0, 1, ch);
+    for (let y = 1; y < FH; y++) ctx.fillRect(0, Math.round(y * ch / FH), cw, 1);
+  },
+};
+
+// ---------------------------------------------------------------- 8. memory
+// The 2020 rule (Ramsauer et al.): x ← Xᵀ softmax(β X x), the memories as keys and values and
+// the cue as the query. It is attention. The neurons are a 51 × 32 grid of square cells; each
+// picture sits in the middle 32 columns with dark either side, which the softmax ignores.
+const MW = 51, MH = 32, MN = MW * MH, MX = 9;
+const memory = {
+  focus: 14, pats: null, x: new Float32Array(MN), shown: new Float32Array(MN), prev: new Float32Array(MN),
+  phase: 0, steps: 0, wait: 0, verdict: '', best: null, weights: null, onRecall: null,
+  // Keys are the pictures with their mean taken out, so a cue is matched by its shape and not
+  // by how much of it is lit. With raw overlaps every sparse cue fell into the sparsest picture.
+  build() {
+    this.pats = Object.entries(PICTURES).map(([name, f]) => {
+      const r = raster(f), p = new Float32Array(MN).fill(-1);
+      for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) p[j * MW + MX + i] = r[j * S + i];
+      return { name, p, key: this.centred(p) };
+    });
+  },
+  centred(x) {
+    const v = new Float32Array(S * S);
+    let mean = 0;
+    for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) mean += (v[j * S + i] = x[j * MW + MX + i]);
+    mean /= S * S;
+    let norm = 0;
+    for (let k = 0; k < S * S; k++) { v[k] -= mean; norm += v[k] * v[k]; }
+    norm = Math.sqrt(norm);
+    if (norm > 1e-6) for (let k = 0; k < S * S; k++) v[k] /= norm;
+    return v;
+  },
+  from(m) {
+    if (!this.pats) this.build();
+    const c = coarse(MW, MH);
+    for (let i = 0; i < MN; i++) this.x[i] = c[i] >= 0.25 ? 1 : -1;
+    this.shown.set(this.x); this.prev.set(this.x);
+    this.phase = 0; this.steps = 0; this.wait = 50; this.verdict = 'reading the canvas as a cue…'; this.best = null;
+  },
+  to(m) { fine(MW, MH, Float32Array.from(this.x, v => v > 0 ? 1 : 0)); },
+  // Overlap on the middle square only: the dark sides are the same in every picture.
+  overlap(p, x) {
+    let s = 0;
+    for (let j = 0; j < MH; j++) for (let i = MX; i < MX + S; i++) s += p[j * MW + i] * x[j * MW + i];
+    return s / (S * S);
+  },
+  attend() {
+    const q = this.centred(this.x), K = this.pats.length;
+    const logit = this.pats.map(({ key }) => { let s = 0; for (let k = 0; k < S * S; k++) s += key[k] * q[k]; return this.focus * s; });
+    const top = Math.max(...logit), w = logit.map(l => Math.exp(l - top)), sum = w.reduce((a, b) => a + b, 0);
+    const next = new Float32Array(MN);
+    for (let k = 0; k < K; k++) { w[k] /= sum; const p = this.pats[k].p; for (let i = 0; i < MN; i++) next[i] += w[k] * p[i]; }
+    let moved = 0;
+    for (let i = 0; i < MN; i++) moved = Math.max(moved, Math.abs(next[i] - this.x[i]));
+    this.prev.set(this.shown); this.x = next; this.weights = w;
+    // A blank cue weighs every picture the same; the average is the answer, so stop there.
+    this.isBlank = q.every(v => v === 0);
+    return moved;
+  },
+  describe() {
+    const ov = this.pats.map(q => this.overlap(q.p, this.x));
+    let k = 0;
+    for (let i = 1; i < ov.length; i++) if (ov[i] > ov[k]) k = i;
+    const name = this.pats[k].name;
+    if (this.isBlank) {
+      this.best = null;
+      this.verdict = 'A blank cue weighs every picture the same, so it recalls their average: a face none of them has.';
+    } else if (ov[k] >= 0.9) {
+      this.best = name;
+      this.verdict = name === 'next'
+        ? 'It remembers a picture none of the thirteen buttons shows: the place kept for the next sibling.'
+        : `It remembers ${name}. (overlap ${ov[k].toFixed(2)})`;
+    } else {
+      this.best = null;
+      const blend = this.pats.map((q, i) => [q.name, this.weights[i]]).filter(([n, w]) => w >= 0.15).sort((a, b) => b[1] - a[1]);
+      const isAverage = blend.length === 0 || Math.max(...this.weights) < 0.25;
+      if (isAverage) this.verdict = 'Nothing here is close to any of them, so it recalls their average: a picture none of them is.';
+      else this.verdict = 'A blend of ' + blend.slice(0, 3).map(b => b[0]).join(', ') + '.';
+    }
+    if (this.onRecall) this.onRecall(this.best);
+  },
+  step() {
+    if (this.wait > 0) { if (--this.wait === 0) { this.phase = 1; this.verdict = 'recalling…'; } return; }
+    if (this.phase === 1) {
+      const moved = this.attend();
+      this.steps++;
+      this.isLast = moved < 1e-3 || this.steps > 8 || this.isBlank;
+      this.fadeAt = 0; this.phase = 2;
+    }
+    // each step of the rule fades in over 18 frames
+    if (this.phase === 2) {
+      const t = Math.min(1, ++this.fadeAt / 18);
+      for (let i = 0; i < MN; i++) this.shown[i] = this.prev[i] + (this.x[i] - this.prev[i]) * t;
+      if (t < 1) return;
+      if (this.isLast) { this.describe(); this.phase = 0; } else this.phase = 1;
+    }
+  },
+  poke(p) {
+    if (p.kind === 'up') { this.phase = 1; this.steps = 0; this.wait = 0; this.verdict = 'recalling…'; return; }
+    const ci = p.x * MW / W, cj = p.y * MH / H, v = p.isErase ? -1 : 1, r = p.isErase ? 2.2 : 1.3;
+    for (let j = Math.floor(cj - r); j <= cj + r; j++) for (let i = Math.floor(ci - r); i <= ci + r; i++) {
+      const isNear = i >= 0 && j >= 0 && i < MW && j < MH && Math.hypot(i + 0.5 - ci, j + 0.5 - cj) <= r;
+      if (isNear) { this.x[j * MW + i] = v; this.shown[j * MW + i] = v; }
+    }
+    this.phase = 0; this.wait = 0; this.verdict = 'drawing a cue: let go and it recalls';
+  },
+  hue: [181, 156, 242],
+  draw(ctx) {
+    const cw = ctx.canvas.width, ch = ctx.canvas.height, sx = cw / MW, sy = ch / MH;
+    ctx.fillStyle = '#0c0a10'; ctx.fillRect(0, 0, cw, ch);
+    const target = this.best && this.best !== 'next' ? SIBS.find(s => s.id === this.best).rgb : [181, 156, 242];
+    for (let c = 0; c < 3; c++) this.hue[c] += (target[c] - this.hue[c]) * 0.08;
+    const [r, g, b] = this.hue, gap = Math.max(1, sx * 0.14);
+    for (let j = 0; j < MH; j++) for (let i = 0; i < MW; i++) {
+      const t = (this.shown[j * MW + i] + 1) / 2;
+      ctx.fillStyle = `rgb(${20 + (r - 20) * t | 0},${16 + (g - 16) * t | 0},${26 + (b - 26) * t | 0})`;
+      ctx.fillRect(i * sx + gap / 2, j * sy + gap / 2, sx - gap, sy - gap);
+    }
+  },
+  status() { return this.verdict; },
+};
+
+// ---------------------------------------------------------------- 4. ripple
+// ripple/'s rule: the 2D wave equation, leapfrog, one field per colour. Matter becomes glass,
+// where waves slow by 1.45, 1.6 and 1.8 for red, green and blue, so white light splits. A bar
+// in the left margin sends white plane waves in; the margins soak up what leaves. Drawn like
+// ripple/'s energy view: each colour's running mean of u² on a log scale, plus faint crests.
+const RS = 1.5, RIW = W * RS, RIH = H * RS, RP = 20, RW = RIW + 2 * RP, RH = RIH + 2 * RP, RN = RW * RH;
+const LAMBDA = [14.7, 12, 10.2], INDEX = [1.45, 1.6, 1.8], BAR_X = RP - 7;
+const ripple = {
+  u: [0, 1, 2].map(() => new Float32Array(RN)), v: [0, 1, 2].map(() => new Float32Array(RN)),
+  E: [0, 1, 2].map(() => new Float32Array(RN)), k2: [0, 1, 2].map(() => new Float32Array(RN)),
+  damp: new Float32Array(RN), glass: new Uint8Array(RN), phase: 0, t: 0, expo: 1,
+  cell(mx, my) { return Math.floor(RP + (my + 0.5) * RS) * RW + Math.floor(RP + (mx + 0.5) * RS); },
+  from(m) {
+    for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
+      const i = y * RW + x, mx = Math.floor((x - RP) / RS), my = Math.floor((y - RP) / RS);
+      const isInside = mx >= 0 && my >= 0 && mx < W && my < H;
+      const isGlass = isInside && m[my * W + mx] >= 0.5;
+      this.glass[i] = isGlass ? 1 : 0;
+      for (let c = 0; c < 3; c++) this.k2[c][i] = isGlass ? 0.25 / INDEX[c] ** 2 : 0.25;
+      const depth = Math.max(0, (RP - Math.min(x, y, RW - 1 - x, RH - 1 - y)) / RP);
+      this.damp[i] = 0.2 * depth * depth;
+    }
+    for (let c = 0; c < 3; c++) { this.u[c].fill(0); this.v[c].fill(0); this.E[c].fill(0); }
+    this.phase = 0; this.t = 0;
+  },
+  // Light gathers where the glass focuses it: glass stays matter, and so do the brightest spots.
+  to(m) {
+    let sum = 0, n = 0;
+    const tot = i => this.E[0][i] + this.E[1][i] + this.E[2][i];
+    for (let my = 0; my < H; my++) for (let mx = 0; mx < W; mx++) { const i = this.cell(mx, my); if (!this.glass[i]) { sum += tot(i); n++; } }
+    const bright = 2.5 * sum / Math.max(1, n);
+    for (let my = 0; my < H; my++) for (let mx = 0; mx < W; mx++) {
+      const i = this.cell(mx, my), isBright = bright > 0 && tot(i) > bright;
+      m[my * W + mx] = this.glass[i] || isBright ? 1 : 0;
+    }
+  },
+  drive() {
+    for (let c = 0; c < 3; c++) {
+      const w = 2 * Math.PI * 0.5 / LAMBDA[c], p = this.phase * w, kick = 0.5 * (Math.sin(p) - Math.sin(p - w));
+      const u = this.u[c], y0 = RP, y1 = RH - RP;
+      for (let y = y0; y < y1; y++) u[y * RW + BAR_X] += kick * Math.min(1, (y - y0) / 14, (y1 - 1 - y) / 14);
+    }
+    this.phase++;
+  },
+  wave() {
+    const d = this.damp;
+    for (let c = 0; c < 3; c++) {
+      const u = this.u[c], v = this.v[c], k2 = this.k2[c];
+      for (let y = 1; y < RH - 1; y++) {
+        for (let i = y * RW + 1, end = y * RW + RW - 1; i < end; i++) {
+          const lap = u[i - 1] + u[i + 1] + u[i - RW] + u[i + RW] - 4 * u[i], di = d[i];
+          v[i] = (2 - di) * u[i] - (1 - di) * v[i] + k2[i] * lap;
+        }
+      }
+      this.u[c] = v; this.v[c] = u;
+    }
+  },
+  step() {
+    for (let k = 0; k < 2; k++) { this.drive(); this.wave(); }
+    this.t++;
+    const rate = Math.max(0.02, 1 / this.t);
+    for (let c = 0; c < 3; c++) { const u = this.u[c], E = this.E[c]; for (let i = 0; i < RN; i++) E[i] += rate * (u[i] * u[i] - E[i]); }
+  },
+  pebble(x, y, a) {
+    const cx = RP + x * RS, cy = RP + y * RS, s = 2.5;
+    for (let j = Math.floor(cy - 3 * s); j <= cy + 3 * s; j++) for (let i = Math.floor(cx - 3 * s); i <= cx + 3 * s; i++) {
+      if (i < 1 || j < 1 || i >= RW - 1 || j >= RH - 1) continue;
+      const g = a * Math.exp(-((i - cx) ** 2 + (j - cy) ** 2) / (2 * s * s)), k = j * RW + i;
+      for (let c = 0; c < 3; c++) { this.u[c][k] += g; this.v[c][k] += g; }
+    }
+  },
+  poke(p) {
+    if (p.kind === 'down') this.pebble(p.x, p.y, 3);
+    else if (p.kind === 'drag') this.pebble(p.x, p.y, 1);
+  },
+  draw(ctx) {
+    this.buf ||= pixels(RIW, RIH);
+    const [r, g, b] = this.u, [Er, Eg, Eb] = this.E, px = this.buf.px;
+    let sum = 0, n = 0;
+    for (let y = RP; y < RH - RP; y += 3) for (let i = y * RW + RP; i < y * RW + RW - RP; i += 3) { sum += Eg[i]; n++; }
+    this.expo += (1 / (3 * (sum / n) + 1e-9) - this.expo) * 0.08;
+    const expo = this.expo * 1024, crest = Math.sqrt(this.expo) * 0.35;
+    // brightness is log10 over 2.5 decades, looked up from E·expo in 1/1024 steps
+    if (!this.logLut) this.logLut = Float32Array.from({ length: 8192 }, (_, k) => 255 * Math.max(0, 1 + Math.log10((k + 0.5) / 1024) / 2.5));
+    const lut = this.logLut;
+    for (let y = 0; y < RIH; y++) {
+      let i = (y + RP) * RW + RP, o = y * RIW;
+      for (let x = 0; x < RIW; x++, i++, o++) {
+        const c = (r[i] + g[i] + b[i]) * crest, wave = c > 0 ? c / (1 + c) * 60 : 0;
+        let R = lut[Math.min(8191, Er[i] * expo | 0)] * 0.8 + wave;
+        let G = lut[Math.min(8191, Eg[i] * expo | 0)] * 0.8 + wave;
+        let B = lut[Math.min(8191, Eb[i] * expo | 0)] * 0.85 + wave;
+        if (this.glass[i]) { R = R * 0.85 + 26; G = G * 0.85 + 32; B = B * 0.85 + 48; }
+        px[o] = 0xff000000 | (Math.min(255, B | 0) << 16) | (Math.min(255, G | 0) << 8) | Math.min(255, R | 0);
+      }
+    }
+    blit(ctx, this.buf, true);
+  },
+};
+
+// ---------------------------------------------------------------- 6. snow
+// snow/'s rule, Gravner and Griffeath (2008), on a hex lattice of offset rows: vapour d,
+// boundary layer b, ice mass c, attached a. Matter becomes ice and every edge of it grows.
+// One change: the paper holds vapour at ρ far away, but here ice touches the canvas's rim and
+// raced along it. So the rim reflects, and every air site is fed SUPPLY of the way back to ρ
+// each step, as if from the air above and below the plane. The sky swings between fern
+// weather and plate weather, so the ice grows in bands.
+const SR = 2, SXI = W * SR, SX = SXI + 2, SYR = Math.round(H * SR / 0.866), SY = SYR + 2, SN = SX * SY;
+const SNOW_NB = [[1, -1, -SX - 1, -SX, SX - 1, SX], [1, -1, -SX, -SX + 1, SX, SX + 1]]; // even rows, odd rows
+const SNOW = { ALPHA: 0.2, THETA: 0.025, KAPPA: 0.005, MU: 0.03, GAMMA: 0.0001, SIGMA: 0.003, SUPPLY: 0.0006 };
+const SKY = [{ name: 'fern weather', beta: 1.3, rho: 0.66, steps: 420 }, { name: 'plate weather', beta: 2.5, rho: 0.72, steps: 300 }];
+// Site (x, y) of the inner lattice sits at (x + ½ + ½(y odd), (y + ½)·0.866) in lattice units,
+// two to a canvas cell.
+const siteOf = (mx, my) => {
+  const lx = mx * SR, ly = my * SR;
+  let best = -1, bd = 1e9;
+  for (const y of [Math.floor(ly / 0.866 - 0.5), Math.floor(ly / 0.866 - 0.5) + 1]) {
+    if (y < 0 || y >= SYR) continue;
+    const x = clamp(Math.round(lx - 0.5 - 0.5 * (y & 1)), 0, SXI - 1);
+    const d = (x + 0.5 + 0.5 * (y & 1) - lx) ** 2 + ((y + 0.5) * 0.866 - ly) ** 2;
+    if (d < bd) { bd = d; best = (y + 1) * SX + x + 1; }
+  }
+  return best;
+};
+const snow = {
+  a: new Uint8Array(SN), nA: new Uint8Array(SN), onB: new Uint8Array(SN), inner: new Uint8Array(SN),
+  b: new Float32Array(SN), c: new Float32Array(SN), d: new Float32Array(SN), e: new Float32Array(SN),
+  edge: new Int32Array(SN), nEdge: 0, rho: 0.66, beta: 1.3, T: 0, sky: 0, rng: 1,
+  from(m) {
+    this.a.fill(0); this.nA.fill(0); this.onB.fill(0); this.b.fill(0); this.c.fill(0); this.nEdge = 0;
+    // the rim reflects vapour as ice does (a = 2 there; it is never drawn and never freezes)
+    for (let i = 0; i < SN; i++) {
+      const x = i % SX, y = i / SX | 0, isRim = x === 0 || y === 0 || x === SX - 1 || y === SY - 1;
+      if (isRim) this.a[i] = 2;
+    }
+    this.sky = 0; this.T = 0; this.skyT = 0;
+    ({ beta: this.beta, rho: this.rho } = SKY[0]);
+    this.d.fill(this.rho); this.e.fill(this.rho);
+    let n = 0;
+    for (let y = 0; y < SYR; y++) for (let x = 0; x < SXI; x++) {
+      const i = (y + 1) * SX + x + 1;
+      this.inner[i] = 1;
+      const mx = Math.floor((x + 0.5 + 0.5 * (y & 1)) / SR), my = Math.floor((y + 0.5) * 0.866 / SR);
+      if (m[clamp(my, 0, H - 1) * W + clamp(mx, 0, W - 1)] >= 0.5) { this.c[i] = 1; this.attach(i); n++; }
+    }
+    if (!n) { const i = siteOf(W / 2, H / 2); this.c[i] = 1; this.attach(i); }
+  },
+  to(m) { for (let my = 0; my < H; my++) for (let mx = 0; mx < W; mx++) m[my * W + mx] = this.a[siteOf(mx + 0.5, my + 0.5)]; },
+  attach(i) {
+    const { a, nA, onB, b, c, d, e, edge } = this, nb = SNOW_NB[((i / SX | 0) - 1) & 1];
+    a[i] = 1; c[i] += b[i]; b[i] = 0; d[i] = 0; e[i] = 0;
+    if (onB[i]) onB[i] = 2;
+    for (let k = 0; k < 6; k++) {
+      const j = i + nb[k];
+      nA[j]++;
+      if (!a[j] && !onB[j] && this.inner[j]) { onB[j] = 1; edge[this.nEdge++] = j; }
+    }
+  },
+  setRho(rho) {
+    const k = rho / this.rho, { a, onB, d, inner } = this;
+    for (let i = 0; i < SN; i++) {
+      if (!inner[i]) { d[i] = rho; this.e[i] = rho; } else if (!a[i] && !onB[i]) d[i] *= k;
+    }
+    this.rho = rho;
+  },
+  grow() {
+    const { a, nA, onB, b, c, edge } = this, { KAPPA, ALPHA, THETA, MU, GAMMA, SIGMA, SUPPLY } = SNOW, beta = this.beta, rho = this.rho;
+    let d = this.d, e = this.e, rng = this.rng;
+    // 1. diffusion: each air site becomes the mean of itself and its six neighbours; ice reflects
+    for (let y = 1; y <= SYR; y++) {
+      const nb = SNOW_NB[(y - 1) & 1], n2 = nb[2], n3 = nb[3], n4 = nb[4], n5 = nb[5];
+      for (let i = y * SX + 1, end = y * SX + SXI; i <= end; i++) {
+        if (a[i]) continue;
+        const x = d[i];
+        const s = x + (a[i + 1] ? x : d[i + 1]) + (a[i - 1] ? x : d[i - 1]) + (a[i + n2] ? x : d[i + n2])
+          + (a[i + n3] ? x : d[i + n3]) + (a[i + n4] ? x : d[i + n4]) + (a[i + n5] ? x : d[i + n5]);
+        rng ^= rng << 13; rng ^= rng >>> 17; rng ^= rng << 5;
+        const mixed = s * ((rng & 1) ? (1 + SIGMA) / 7 : (1 - SIGMA) / 7);
+        e[i] = mixed + SUPPLY * (rho - mixed);
+      }
+    }
+    this.d = e; this.e = d; d = e; this.rng = rng;
+    // 2. freezing
+    const n0 = this.nEdge;
+    for (let k = 0; k < n0; k++) { const i = edge[k], x = d[i]; b[i] += (1 - KAPPA) * x; c[i] += KAPPA * x; d[i] = 0; }
+    // 3. attachment: tips and faces need beta, hollows less
+    const join = [];
+    for (let k = 0; k < n0; k++) {
+      const i = edge[k], n = nA[i];
+      let isJoining = n >= 4;
+      if (n <= 2) isJoining = b[i] >= beta;
+      else if (n === 3) {
+        const nb = SNOW_NB[((i / SX | 0) - 1) & 1];
+        let around = d[i];
+        for (let q = 0; q < 6; q++) around += d[i + nb[q]];
+        isJoining = b[i] >= 1 || (b[i] >= ALPHA && around < THETA);
+      }
+      if (isJoining) join.push(i);
+    }
+    if (join.length) {
+      for (const i of join) this.attach(i);
+      let w = 0;
+      for (let k = 0; k < this.nEdge; k++) if (onB[edge[k]] === 1) edge[w++] = edge[k];
+      this.nEdge = w;
+      for (const i of join) onB[i] = 0;
+    }
+    // 4. melting
+    for (let k = 0; k < this.nEdge; k++) { const i = edge[k]; d[i] += MU * b[i] + GAMMA * c[i]; b[i] *= 1 - MU; c[i] *= 1 - GAMMA; }
+    if (++this.skyT >= SKY[this.sky].steps) {
+      this.sky = 1 - this.sky; this.skyT = 0;
+      this.beta = SKY[this.sky].beta; this.setRho(SKY[this.sky].rho);
+    }
+    this.T++;
+  },
+  // A fixed pace, so a visit of ten seconds grows fronds about half the canvas long.
+  step() { const t0 = performance.now(); for (let k = 0; k < 3 && performance.now() - t0 < 7; k++) this.grow(); },
+  poke(p) {
+    if (p.isErase) return;
+    const i = siteOf(p.x, p.y);
+    for (const [dx, dy] of [[0, 0], [0.5, 0], [0, 0.5], [0.5, 0.5]]) {
+      const i = siteOf(p.x + dx, p.y + dy);
+      if (i >= 0 && !this.a[i]) { this.c[i] = 1; this.attach(i); }
+    }
+  },
+  draw(ctx) {
+    const w = W * 2, h = H * 2;
+    this.buf ||= pixels(w, h);
+    if (!this.lut) {
+      this.lut = new Int32Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) this.lut[y * w + x] = siteOf((x + 0.5) / 2, (y + 0.5) / 2);
+      this.ice = new Uint32Array(256); this.air = new Uint32Array(256);
+      for (let k = 0; k < 256; k++) {
+        const t = k / 255, s = Math.pow(t, 0.8);
+        this.ice[k] = rgb(96 + 159 * s, 124 + 131 * s, 178 + 77 * s);
+        this.air[k] = rgb(7 + 6 * t, 12 + 16 * t, 22 + 38 * t);
+      }
+    }
+    const { a, c, d, lut, ice, air } = this, px = this.buf.px, airScale = 255 / (1.15 * this.rho);
+    for (let o = 0; o < w * h; o++) {
+      const i = lut[o];
+      px[o] = a[i] ? ice[Math.min(255, Math.max(0, (c[i] - 0.6) * 110)) | 0] : air[Math.min(255, d[i] * airScale) | 0];
+    }
+    blit(ctx, this.buf, true);
+  },
+  status() { return `${SKY[this.sky].name}: β ${this.beta}, ρ ${this.rho} · step ${this.T}`; },
+};
+
+// ---------------------------------------------------------------- 11. dune
+// dune/'s rule, Werner (1995), on a torus: a random cell gives up a slab unless it is bare or
+// in a wind shadow; the slab hops 5 cells downwind until it sticks (0.6 on sand, 0.4 on bare
+// ground, always in shadow); nothing may be steeper than 2 slabs a cell. Matter is sand; the
+// relay tops it up or thins it to about 2 slabs a cell, where barchans and ridges form. The
+// wind wraps round east to west, as on Werner's torus, but slopes stop at the top and bottom:
+// sand slumping off the bottom of the canvas onto the top looked wrong.
+const DUNE = { PS: 0.6, PNS: 0.4, REPOSE: 2, SH: Math.tan(15 * Math.PI / 180) * 3, L: 5 };
+const wrapX = v => ((v % W) + W) % W, wrapY = v => ((v % H) + H) % H;
+const NB8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+const dune = {
+  h: new Int32Array(N), hmax: 0, t: 0,
+  from(m) {
+    const h = this.h;
+    let total = 0;
+    for (let i = 0; i < N; i++) total += m[i];
+    if (total < 20) { for (let i = 0; i < N; i++) h[i] = rnd() < 0.5 ? 3 : 0; }
+    else {
+      const k = clamp(2 * N / total, 2, 24);
+      for (let i = 0; i < N; i++) { const v = m[i] * k; h[i] = Math.floor(v + rnd()); }
+    }
+    this.refresh();
+    // let tall piles slump to repose before the wind starts
+    for (let pass = 0; pass < 400; pass++) {
+      let moved = 0;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) moved += this.slideDown(x, y);
+      if (!moved) break;
+    }
+    this.refresh(); this.t = 0;
+  },
+  to(m) { for (let i = 0; i < N; i++) m[i] = Math.min(1, this.h[i] / 3); },
+  refresh() { let m = 0; for (let i = 0; i < N; i++) if (this.h[i] > m) m = this.h[i]; this.hmax = m; },
+  inShadow(x, y) {
+    const h = this.h, h0 = h[y * W + x], reach = (this.hmax - h0) / DUNE.SH;
+    for (let d = 1; d < reach; d++) if (h[y * W + wrapX(x - d)] - d * DUNE.SH > h0) return true;
+    return false;
+  },
+  // a slab rolls down the steepest drop until nothing is over repose; returns slabs moved
+  slideDown(x, y) {
+    const h = this.h;
+    let moved = 0;
+    for (;;) {
+      const c = y * W + x;
+      let best = -1, bx = 0, by = 0;
+      for (let k = 0; k < 8; k++) {
+        const nx = wrapX(x + NB8[k][0]), ny = y + NB8[k][1];
+        if (ny < 0 || ny >= H) continue;
+        const drop = h[c] - h[ny * W + nx];
+        if (drop > DUNE.REPOSE) {
+          const g = k < 4 ? drop : drop * Math.SQRT1_2;
+          if (g > best || (g === best && rnd() < 0.5)) { best = g; bx = nx; by = ny; }
+        }
+      }
+      if (best < 0) return moved;
+      h[c]--; h[by * W + bx]++; moved++;
+      x = bx; y = by;
+    }
+  },
+  slideIn(x, y) {
+    const h = this.h;
+    for (;;) {
+      const c = y * W + x;
+      let best = -1, bx = 0, by = 0;
+      for (let k = 0; k < 8; k++) {
+        const nx = wrapX(x + NB8[k][0]), ny = y + NB8[k][1];
+        if (ny < 0 || ny >= H) continue;
+        const rise = h[ny * W + nx] - h[c];
+        if (rise > DUNE.REPOSE) {
+          const g = k < 4 ? rise : rise * Math.SQRT1_2;
+          if (g > best || (g === best && rnd() < 0.5)) { best = g; bx = nx; by = ny; }
+        }
+      }
+      if (best < 0) return;
+      h[by * W + bx]--; h[c]++;
+      x = bx; y = by;
+    }
+  },
+  drop(x, y) { const c = y * W + x; if (++this.h[c] > this.hmax) this.hmax = this.h[c]; this.slideDown(x, y); },
+  poll() {
+    const h = this.h, x = (rnd() * W) | 0, y = (rnd() * H) | 0, c = y * W + x;
+    if (h[c] === 0 || this.inShadow(x, y)) return;
+    h[c]--;
+    this.slideIn(x, y);
+    let px = x;
+    for (let hop = 0; hop < 400; hop++) {
+      px = wrapX(px + DUNE.L);
+      const p = y * W + px;
+      if (this.inShadow(px, y)) break;
+      if (rnd() < (h[p] > 0 ? DUNE.PS : DUNE.PNS)) break;
+    }
+    this.drop(px, y);
+  },
+  step() {
+    const t0 = performance.now();
+    while (performance.now() - t0 < 6) { for (let k = 0; k < 2000; k++) this.poll(); this.t += 2000 / N; }
+    this.refresh();
+  },
+  poke(p) {
+    for (let k = 0; k < 12; k++) {
+      const x = wrapX(Math.round(p.x + (rnd() - 0.5) * 6)), y = clamp(Math.round(p.y + (rnd() - 0.5) * 6), 0, H - 1);
+      if (!p.isErase) this.drop(x, y);
+      else if (this.h[y * W + x] > 0) { this.h[y * W + x]--; this.slideIn(x, y); }
+    }
+  },
+  // Heights smoothed and lit by a low sun from the west-north-west, so slip faces fall into shade.
+  draw(ctx) {
+    this.buf ||= pixels(W, H);
+    this.hs ||= new Float32Array(N);
+    this.grit ||= Float32Array.from({ length: N }, (_, i) => hash(i, 7));
+    const h = this.h, hs = this.hs, px = this.buf.px, grit = this.grit, SX0 = -0.82, SY0 = -0.3, SZ0 = 0.47;
+    let mean = 0;
+    for (let c = 0; c < N; c++) mean += h[c];
+    mean /= N;
+    for (let y = 0; y < H; y++) {
+      const up = (y > 0 ? y - 1 : y) * W, dn = (y < H - 1 ? y + 1 : y) * W, row = y * W;
+      for (let x = 0; x < W; x++) {
+        const l = x > 0 ? x - 1 : W - 1, r = x < W - 1 ? x + 1 : 0;
+        hs[row + x] = (4 * h[row + x] + h[row + l] + h[row + r] + h[up + x] + h[dn + x]) / 24;
+      }
+    }
+    for (let y = 0; y < H; y++) {
+      const up = (y > 0 ? y - 1 : y) * W, dn = (y < H - 1 ? y + 1 : y) * W, row = y * W;
+      for (let x = 0; x < W; x++) {
+        const c = row + x, g = grit[c], l = x > 0 ? x - 1 : W - 1, rr = x < W - 1 ? x + 1 : 0;
+        const gx = (hs[row + rr] - hs[row + l]) / 2, gy = (hs[dn + x] - hs[up + x]) / 2;
+        const shade = (-gx * SX0 - gy * SY0 + SZ0) / Math.sqrt(gx * gx + gy * gy + 1), lit = 0.4 + (shade > 0 ? shade : 0);
+        let R = 104 + 18 * g, G = 78 + 14 * g, B = 62 + 10 * g;
+        const hc = h[c];
+        if (hc > 0) {
+          let k = (hc - mean) / 30 + 0.3;
+          if (k < 0) k = 0; else if (k > 1) k = 1;
+          const f = hc < 3 ? 0.5 + hc / 6 : 1;
+          R += (110 + 22 * k - 10 * g) * f; G += (90 + 12 * k - 8 * g) * f; B += (50 - 6 * k - 6 * g) * f;
+        }
+        R *= lit; G *= lit; B *= lit;
+        px[c] = 0xff000000 | ((B > 255 ? 255 : B | 0) << 16) | ((G > 255 ? 255 : G | 0) << 8) | (R > 255 ? 255 : R | 0);
+      }
+    }
+    blit(ctx, this.buf, true);
+  },
+  status() { return `wind from the west · ${this.t.toFixed(0)} time units`; },
+};
+
+// ---------------------------------------------------------------- 13. soup
+// soup/'s rule, Boerlijst and Hogeweg (1991), table 1, on a torus: a molecule decays with
+// chance 0.2; an empty cell is filled from one of its four neighbours, each claiming 1 plus
+// 100 for each molecule of the kind before it flanking the line of copying, against 11 to
+// stay empty; then two Margolus passes stir the water. Parasites take help from kind 2 and
+// give none.
+const PAR = 15, SOUP_KINDS = 6;
+function oklch(L, C, hDeg) {
+  const h = hDeg * Math.PI / 180, a = C * Math.cos(h), b = C * Math.sin(h);
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  const lin = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+  return lin.map(x => { x = Math.max(0, Math.min(1, x)); return Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055)); });
+}
+// The dish is twice the canvas's resolution, 384 × 240, near soup/'s 300 × 300, so spirals
+// come out the same size as there.
+const UW = W * 2, UH = H * 2, UN = UW * UH;
+const soup = {
+  a: new Uint8Array(UN), b: new Uint8Array(UN), decay: new Float32Array(16), self: new Float32Array(16), cat: new Float32Array(256),
+  mo: 0, t: 0,
+  setCycle(n) {
+    this.decay.fill(0.2); this.self.fill(1); this.cat.fill(0);
+    this.decay[0] = 0; this.self[0] = 0;
+    for (let i = 1; i <= n; i++) this.cat[i * 16 + (i === 1 ? n : i - 1)] = 100;
+    this.cat[PAR * 16 + 2] = 200;
+  },
+  from(m) {
+    this.setCycle(SOUP_KINDS);
+    let n = 0;
+    for (let i = 0; i < UN; i++) {
+      const isSeed = m[((i / UW | 0) >> 1) * W + ((i % UW) >> 1)] >= 0.5;
+      this.a[i] = isSeed ? 1 + Math.floor(rnd() * SOUP_KINDS) : 0;
+      n += isSeed;
+    }
+    if (n < 800) for (let i = 0; i < UN; i++) this.a[i] = rnd() < 0.5 ? 0 : 1 + Math.floor(rnd() * SOUP_KINDS);
+    this.t = 0;
+  },
+  // Two kinds of the six are kept: a third of every spiral arm.
+  to(m) {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let k = 0;
+      for (let q = 0; q < 4; q++) { const v = this.a[(2 * y + (q >> 1)) * UW + 2 * x + (q & 1)]; k += v === 1 || v === 2; }
+      m[y * W + x] = k >= 2 ? 1 : 0;
+    }
+  },
+  copy() {
+    const a = this.a, b = this.b, decay = this.decay, self = this.self, cat = this.cat;
+    let z = (rnd() * 4294967296) >>> 0 || 1;
+    for (let y = 0; y < UH; y++) {
+      const ym = (y === 0 ? UH - 1 : y - 1) * UW, yp = (y === UH - 1 ? 0 : y + 1) * UW, y0 = y * UW;
+      for (let x = 0; x < UW; x++) {
+        const i = y0 + x, v = a[i];
+        z ^= z << 13; z >>>= 0; z ^= z >>> 17; z ^= z << 5; z >>>= 0;
+        const u = z / 4294967296;
+        if (v !== 0) { b[i] = u < decay[v] ? 0 : v; continue; }
+        const xm = x === 0 ? UW - 1 : x - 1, xp = x === UW - 1 ? 0 : x + 1;
+        const n = ym + x, so = yp + x, w = y0 + xm, e = y0 + xp;
+        const Nn = a[n], Sn = a[so], Wn = a[w], En = a[e];
+        const NE = a[ym + xp], NW = a[ym + xm], SE = a[yp + xp], SW = a[yp + xm];
+        let cN = 0, cS = 0, cW = 0, cE = 0;
+        if (Nn !== 0) { const r = Nn << 4; cN = self[Nn] + cat[r + NE] + cat[r + NW] + cat[r + En] + cat[r + Wn]; }
+        if (Sn !== 0) { const r = Sn << 4; cS = self[Sn] + cat[r + SE] + cat[r + SW] + cat[r + En] + cat[r + Wn]; }
+        if (Wn !== 0) { const r = Wn << 4; cW = self[Wn] + cat[r + NW] + cat[r + SW] + cat[r + Nn] + cat[r + Sn]; }
+        if (En !== 0) { const r = En << 4; cE = self[En] + cat[r + NE] + cat[r + SE] + cat[r + Nn] + cat[r + Sn]; }
+        let r = u * (11 + cN + cS + cW + cE) - 11;
+        if (r < 0) { b[i] = 0; continue; }
+        let p = e;
+        if ((r -= cN) < 0) p = n;
+        else if ((r -= cS) < 0) p = so;
+        else if ((r -= cW) < 0) p = w;
+        b[i] = a[p];
+      }
+    }
+    this.a = b; this.b = a;
+  },
+  // Toffoli–Margolus: each 2 × 2 block turns a quarter turn one way or the other
+  margolus() {
+    const a = this.a, o = this.mo;
+    this.mo ^= 1;
+    let z = (rnd() * 4294967296) >>> 0 || 1;
+    for (let by = 0; by < UH; by += 2) {
+      const yA = by + o, yB = yA + 1, y0 = (yA >= UH ? yA - UH : yA) * UW, y1 = (yB >= UH ? yB - UH : yB) * UW;
+      for (let bx = 0; bx < UW; bx += 2) {
+        const xA = bx + o, xB = xA + 1, x0 = xA >= UW ? xA - UW : xA, x1 = xB >= UW ? xB - UW : xB;
+        const p = y0 + x0, q = y0 + x1, r = y1 + x0, t = y1 + x1, A = a[p], B = a[q], C = a[r], D = a[t];
+        z ^= z << 13; z >>>= 0; z ^= z >>> 17; z ^= z << 5; z >>>= 0;
+        if (z < 2147483648) { a[p] = C; a[q] = A; a[r] = D; a[t] = B; } else { a[p] = B; a[q] = D; a[r] = A; a[t] = C; }
+      }
+    }
+  },
+  step() {
+    const t0 = performance.now();
+    for (let k = 0; k < 2 && performance.now() - t0 < 5; k++) { this.copy(); this.margolus(); this.margolus(); this.t++; }
+  },
+  poke(p) {
+    const cx = p.x * 2, cy = p.y * 2, R = 8;
+    for (let y = Math.floor(cy - R); y <= cy + R; y++) for (let x = Math.floor(cx - R); x <= cx + R; x++) {
+      if (Math.hypot(x - cx, y - cy) > R) continue;
+      this.a[((y % UH + UH) % UH) * UW + (x % UW + UW) % UW] = p.isErase ? 0 : PAR;
+    }
+  },
+  // Each cell is the mean colour of the molecules in its 3 × 3 block, with a quarter of its own
+  // colour back in; any parasite in the block marks it white, as soup/ and the paper's plates do.
+  // The block sums are separable: across each row, then down each column.
+  draw(ctx) {
+    this.buf ||= pixels(UW, UH);
+    if (!this.K) {
+      this.K = [new Float32Array(16), new Float32Array(16), new Float32Array(16), new Float32Array(16), new Float32Array(16)];
+      for (let i = 1; i <= SOUP_KINDS; i++) { [this.K[0][i], this.K[1][i], this.K[2][i]] = oklch(0.72, 0.15, 25 + (i - 1) * 360 / SOUP_KINDS); this.K[3][i] = 1; }
+      this.K[4][PAR] = 1; this.K[3][PAR] = 0;
+      this.row = [0, 1, 2, 3, 4].map(() => new Float32Array(UN));
+      this.box = [0, 1, 2, 3, 4].map(() => new Float32Array(UN));
+    }
+    const a = this.a, px = this.buf.px, K = this.K, row = this.row, box = this.box;
+    for (let c = 0; c < 5; c++) {
+      const k = K[c], rw = row[c], bx = box[c];
+      for (let y = 0; y < UH; y++) {
+        const y0 = y * UW;
+        for (let x = 0; x < UW; x++) {
+          const l = x === 0 ? UW - 1 : x - 1, r = x === UW - 1 ? 0 : x + 1;
+          rw[y0 + x] = k[a[y0 + l]] + k[a[y0 + x]] + k[a[y0 + r]];
+        }
+      }
+      for (let y = 0; y < UH; y++) {
+        const up = (y === 0 ? UH - 1 : y - 1) * UW, y0 = y * UW, dn = (y === UH - 1 ? 0 : y + 1) * UW;
+        for (let x = 0; x < UW; x++) bx[y0 + x] = rw[up + x] + rw[y0 + x] + rw[dn + x];
+      }
+    }
+    const [R, G, B, Nn, P] = box, KR = K[0], KG = K[1], KB = K[2], EMPTY = rgb(14, 12, 10), PARC = rgb(246, 242, 234);
+    for (let o = 0; o < UN; o++) {
+      const n = Nn[o];
+      if (P[o] > 0) { px[o] = PARC; continue; }
+      if (n === 0) { px[o] = EMPTY; continue; }
+      const v = a[o], f = (0.35 + 0.65 * n / 9) / n;
+      px[o] = 0xff000000 | (((0.75 * B[o] + 0.25 * n * KB[v]) * f) << 16) | (((0.75 * G[o] + 0.25 * n * KG[v]) * f) << 8) | ((0.75 * R[o] + 0.25 * n * KR[v]) * f);
+    }
+    blit(ctx, this.buf, true);
+  },
+  status() {
+    let par = 0;
+    for (let i = 0; i < UN; i++) par += this.a[i] === PAR;
+    let say = `step ${this.t}`;
+    if (par) say += ` · ${par} parasites`;
+    return say;
+  },
+};
+
+// ---------------------------------------------------------------- 10. firefly
+// firefly/'s meadow: pulse-coupled clocks. A phase runs 0 → 1 at a firefly's own rate (1 s ± 3%)
+// and it flashes at 1. A flash is seen by those within R, 3 frames late, and shifts each one's
+// phase by EPS · prc(θ) / k̄: later than halfway, forward; earlier, back; not at all in the
+// first 15%. A lantern is brighter: seen from 2.5 R, as strongly as two whole neighbourhoods.
+const FLY = { MAX: 600, R: 12, EPS: 1.4, LAT: 3, REF: 0.15, SPREAD: 0.03, DT: 1 / 60 };
+const firefly = {
+  from(m) {
+    const spots = [];
+    for (let i = 0; i < N; i++) if (m[i] >= 0.5) spots.push(i);
+    for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [spots[i], spots[j]] = [spots[j], spots[i]]; }
+    const x = [], y = [];
+    for (const i of spots.slice(0, FLY.MAX)) { x.push(i % W + rnd()); y.push((i / W | 0) + rnd()); }
+    while (x.length < 300) { x.push(4 + rnd() * (W - 8)); y.push(4 + rnd() * (H - 8)); }
+    const n = this.n = x.length;
+    this.x = Float32Array.from(x); this.y = Float32Array.from(y);
+    this.th = Float64Array.from({ length: n }, rnd);
+    this.w = Float64Array.from({ length: n }, () => 1 / (1 + FLY.SPREAD * gauss()));
+    this.last = new Float64Array(n).fill(-9); this.kick = new Float64Array(n);
+    this.t = 0; this.queue = []; this.hist = []; this.lanterns = [];
+    this.nb = [];
+    let tot = 0;
+    for (let i = 0; i < n; i++) {
+      const l = [];
+      for (let j = 0; j < n; j++) if (j !== i && Math.hypot(this.x[i] - this.x[j], this.y[i] - this.y[j]) < FLY.R) l.push(j);
+      this.nb.push(l); tot += l.length;
+    }
+    this.kbar = Math.max(1, tot / n);
+  },
+  to(m) {
+    m.fill(0);
+    for (let i = 0; i < this.n; i++) m[Math.floor(this.y[i]) * W + Math.floor(this.x[i])] = 1;
+  },
+  prc(t) { return t < FLY.REF ? 0 : -Math.sin(2 * Math.PI * t) / (2 * Math.PI); },
+  tick() {
+    const n = this.n, kick = this.kick;
+    kick.fill(0);
+    const seen = this.queue.length >= FLY.LAT ? this.queue.shift() : null;
+    if (seen) {
+      for (const i of seen.flies) for (const j of this.nb[i]) kick[j] += 1;
+      for (const L of seen.lanterns) for (const j of L.nb) kick[j] += 2 * this.kbar;
+    }
+    this.t += FLY.DT;
+    const now = { flies: [], lanterns: [] };
+    for (let i = 0; i < n; i++) {
+      this.th[i] += this.w[i] * FLY.DT;
+      if (kick[i]) this.th[i] += FLY.EPS * this.prc(this.th[i]) * kick[i] / this.kbar;
+      if (this.th[i] < 0) this.th[i] += 1;
+      if (this.th[i] >= 1) { this.th[i] = 0; now.flies.push(i); this.last[i] = this.t; }
+    }
+    for (const L of this.lanterns) {
+      L.th += FLY.DT / L.period;
+      if (L.th >= 1) { L.th -= 1; L.last = this.t; now.lanterns.push(L); }
+    }
+    this.queue.push(now);
+    this.hist.push(now.flies.length);
+    if (this.hist.length > 300) this.hist.shift();
+  },
+  step() { this.tick(); },
+  poke(p) {
+    if (p.kind !== 'down') return;
+    const hit = this.lanterns.findIndex(L => Math.hypot(L.x - p.x, L.y - p.y) < 4);
+    if (hit >= 0) { this.lanterns.splice(hit, 1); return; }
+    const L = { x: p.x, y: p.y, period: p.isErase ? 1.2 : 0.85, th: 0, last: -9, nb: [] };
+    for (let i = 0; i < this.n; i++) if (Math.hypot(this.x[i] - L.x, this.y[i] - L.y) < 2.5 * FLY.R) L.nb.push(i);
+    this.lanterns.push(L);
+  },
+  draw(ctx) {
+    const cw = ctx.canvas.width, ch = ctx.canvas.height, s = cw / W;
+    if (!this.glow) {
+      const g = document.createElement('canvas');
+      g.width = g.height = 48;
+      const c = g.getContext('2d'), rg = c.createRadialGradient(24, 24, 0, 24, 24, 24);
+      rg.addColorStop(0, 'rgba(240,255,190,1)'); rg.addColorStop(0.15, 'rgba(216,255,112,0.9)');
+      rg.addColorStop(0.45, 'rgba(150,220,60,0.25)'); rg.addColorStop(1, 'rgba(100,180,40,0)');
+      c.fillStyle = rg; c.fillRect(0, 0, 48, 48);
+      this.glow = g;
+    }
+    const lg = ctx.createLinearGradient(0, 0, 0, ch);
+    lg.addColorStop(0, '#05070d'); lg.addColorStop(0.55, '#070b0c'); lg.addColorStop(1, '#0a110b');
+    ctx.fillStyle = lg; ctx.fillRect(0, 0, cw, ch);
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < this.n; i++) {
+      const b = 1 - (this.t - this.last[i]) / 0.3, x = this.x[i] * s, y = this.y[i] * s;
+      if (b > 0.02) { const r = s * (2 + 5 * b); ctx.globalAlpha = Math.min(1, b); ctx.drawImage(this.glow, x - r, y - r, 2 * r, 2 * r); }
+      else { ctx.globalAlpha = 0.35; ctx.fillStyle = 'rgb(120,135,100)'; ctx.fillRect(x - s * 0.2, y - s * 0.2, s * 0.4, s * 0.4); }
+    }
+    for (const L of this.lanterns) {
+      const b = Math.max(0.25, 1 - (this.t - L.last) / 0.3), r = s * 9 * b;
+      ctx.globalAlpha = 1; ctx.fillStyle = L.period < 1 ? '#ffd27a' : '#ff9d6a';
+      ctx.fillRect(L.x * s - s * 0.8, L.y * s - s * 0.8, s * 1.6, s * 1.6);
+      ctx.globalAlpha = b; ctx.drawImage(this.glow, L.x * s - r, L.y * s - r, 2 * r, 2 * r);
+    }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    // flashes per frame for the last five seconds: noise out of step, spikes in step
+    const hist = this.hist, top = Math.max(8, ...hist), x0 = s * 4, y0 = ch - s * 4, tw = s * 50, th = s * 9;
+    ctx.fillStyle = 'rgba(5,7,10,0.6)'; ctx.fillRect(x0 - s, y0 - th - s, tw + 2 * s, th + 2 * s);
+    ctx.strokeStyle = 'rgba(216,255,112,0.8)'; ctx.lineWidth = Math.max(1, s * 0.25); ctx.beginPath();
+    hist.forEach((v, k) => { const x = x0 + tw * k / 299, y = y0 - th * v / top; if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    ctx.stroke();
+  },
+  // share of fireflies whose last flash fell within 0.1 s of the busiest such window
+  status() {
+    const bins = new Array(10).fill(0);
+    for (let i = 0; i < this.n; i++) bins[Math.floor((this.th[i] % 1) * 10) % 10]++;
+    let best = 0;
+    for (let k = 0; k < 10; k++) best = Math.max(best, bins[k] + bins[(k + 1) % 10]);
+    let say = `${this.n} fireflies · ${Math.round(100 * best / this.n)}% flash within the same fifth of a second`;
+    const nl = this.lanterns.length;
+    if (nl === 1) say += ' · 1 lantern';
+    else if (nl > 1) say += ` · ${nl} lanterns`;
+    return say;
+  },
+};
+
+// ---------------------------------------------------------------- sound
+// Only a click makes sound here: a strike, a mode, an interval, a scale. Nothing plays by itself.
+let ac = null, mix = null;
+function audio() {
+  if (!ac) { ac = new AudioContext(); mix = ac.createDynamicsCompressor(); mix.connect(ac.destination); }
+  if (ac.state === 'suspended') ac.resume();
+  return ac;
+}
+function playSamples(data) {
+  const ctx = audio(), b = ctx.createBuffer(1, data.length, ctx.sampleRate);
+  b.copyToChannel(data, 0);
+  const src = ctx.createBufferSource();
+  src.buffer = b; src.connect(mix); src.start();
+}
+const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+function noteOf(f) {
+  const midi = 69 + 12 * Math.log2(f / 440), near = Math.round(midi), cents = Math.round(100 * (midi - near));
+  let sign = '±';
+  if (cents > 0) sign = '+'; else if (cents < 0) sign = '−';
+  return `${NOTE_NAMES[(near % 12 + 12) % 12]}${Math.floor(near / 12) - 1} ${sign}${Math.abs(cents)}¢`;
+}
+
+// Biggest 4-connected patch of cells equal to `v` in a w × h grid, as a list of indices.
+function largestPatch(grid, w, h, v) {
+  const seen = new Uint8Array(w * h);
+  let best = [];
+  for (let s = 0; s < w * h; s++) {
+    if (seen[s] || grid[s] !== v) continue;
+    const patch = [s];
+    seen[s] = 1;
+    for (let k = 0; k < patch.length; k++) {
+      const p = patch[k], x = p % w;
+      for (const q of [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, p - w, p + w]) {
+        if (q < 0 || q >= w * h || seen[q] || grid[q] !== v) continue;
+        seen[q] = 1; patch.push(q);
+      }
+    }
+    if (patch.length > best.length) best = patch;
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------- 5. drum
+// drum/'s solver, on a 64 × 40 grid of nodes: the modes of -Δ (5-point) on the skin, by banded
+// Cholesky, a block Krylov space of (-Δ)⁻¹ and Rayleigh–Ritz. The skin is the biggest stretch of
+// matter the last sibling left or, if that is small, the biggest open stretch, held down by the
+// matter round it. One mode rings, and sand hops off whatever moves.
+const DG = 3, DW = W / DG, DH = H / DG, DN = DW * DH;
+const DRUM = { K: 24, KRYLOV: 72, HZ: 1200, SAND: 2600, JUMP: 2.5, STICK: 0.1, SLOW: 80, SEEN_RING: 3, FMIN: 50, FMAX: 1600 };
+
+function drumFactor(mask) {
+  const id = new Int32Array(DN).fill(-1), at = [];
+  for (let i = 0; i < DN; i++) if (mask[i]) { id[i] = at.length; at.push(i); }
+  const n = at.length, nb = [];
+  let b = 1;
+  for (let k = 0; k < n; k++) {
+    const p = at[k], x = p % DW, list = [];
+    if (x > 0 && id[p - 1] >= 0) list.push(id[p - 1]);
+    if (x < DW - 1 && id[p + 1] >= 0) list.push(id[p + 1]);
+    if (p >= DW && id[p - DW] >= 0) { list.push(id[p - DW]); b = Math.max(b, k - id[p - DW]); }
+    if (p < DN - DW && id[p + DW] >= 0) list.push(id[p + DW]);
+    nb.push(list);
+  }
+  const w = b + 1, L = new Float64Array(n * w); // L[i·w + i-j]
+  for (let i = 0; i < n; i++) {
+    for (let j = Math.max(0, i - b); j <= i; j++) {
+      let s = 0;
+      if (i === j) s = 4; else if (nb[i].includes(j)) s = -1;
+      for (let k = Math.max(0, i - b); k < j; k++) s -= L[i * w + i - k] * L[j * w + j - k];
+      L[i * w + i - j] = i === j ? Math.sqrt(s) : s / L[j * w];
+    }
+  }
+  return { n, b, w, L, at, nb };
+}
+function drumSolve(F, y, x) {
+  const { n, b, w, L } = F;
+  for (let i = 0; i < n; i++) {
+    let s = y[i];
+    for (let k = Math.max(0, i - b); k < i; k++) s -= L[i * w + i - k] * x[k];
+    x[i] = s / L[i * w];
+  }
+  for (let i = n - 1; i >= 0; i--) {
+    let s = x[i];
+    for (let k = i + 1, e = Math.min(n - 1, i + b); k <= e; k++) s -= L[k * w + k - i] * x[k];
+    x[i] = s / L[i * w];
+  }
+}
+const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+// Cyclic Jacobi on a dense symmetric m × m matrix: eigenvalues end on S's diagonal, vectors in V's columns.
+function jacobi(S, m) {
+  const V = new Float64Array(m * m);
+  for (let i = 0; i < m; i++) V[i * m + i] = 1;
+  const rotate = (X, a, b, c, s, stride, step) => {
+    for (let k = 0; k < m; k++) {
+      const i = k * stride, xa = X[i + a * step], xb = X[i + b * step];
+      X[i + a * step] = c * xa - s * xb; X[i + b * step] = s * xa + c * xb;
+    }
+  };
+  for (let sweep = 0; sweep < 50; sweep++) {
+    let off = 0;
+    for (let p = 0; p < m; p++) for (let q = p + 1; q < m; q++) off += S[p * m + q] ** 2;
+    if (off < 1e-22) break;
+    for (let p = 0; p < m; p++) for (let q = p + 1; q < m; q++) {
+      const apq = S[p * m + q];
+      if (Math.abs(apq) < 1e-300) continue;
+      const th = (S[q * m + q] - S[p * m + p]) / (2 * apq);
+      const t = Math.sign(th || 1) / (Math.abs(th) + Math.sqrt(th * th + 1));
+      const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+      rotate(S, p, q, c, s, m, 1); rotate(S, p, q, c, s, 1, m); rotate(V, p, q, c, s, m, 1);
+    }
+  }
+  return V;
+}
+// Lowest K modes; the block is 3 wide so both modes of a symmetric pair turn up. Each φ has Σφ² = 1.
+function findModes(mask) {
+  const F = drumFactor(mask), n = F.n;
+  if (n < 4) return { at: F.at, list: [] };
+  let s0 = 12345;
+  const rand = () => { s0 = (s0 * 1664525 + 1013904223) >>> 0; return s0 / 4294967296 - 0.5; };
+  const V = [], m = Math.min(DRUM.KRYLOV, n);
+  const keep = w => {
+    for (let pass = 0; pass < 2; pass++) for (const v of V) { const c = dot(v, w); for (let i = 0; i < n; i++) w[i] -= c * v[i]; }
+    const norm = Math.sqrt(dot(w, w));
+    if (norm < 1e-10) return;
+    for (let i = 0; i < n; i++) w[i] /= norm;
+    V.push(w);
+  };
+  for (let j = 0; j < 3; j++) keep(Float64Array.from({ length: n }, rand));
+  for (let j = 0; V.length < m && j < V.length; j++) { const w = new Float64Array(n); drumSolve(F, V[j], w); keep(w); }
+  const mm = V.length, S = new Float64Array(mm * mm), Av = new Float64Array(n);
+  for (let j = 0; j < mm; j++) {
+    for (let k = 0; k < n; k++) { let s = 4 * V[j][k]; for (const q of F.nb[k]) s -= V[j][q]; Av[k] = s; }
+    for (let i = 0; i <= j; i++) S[i * mm + j] = S[j * mm + i] = dot(V[i], Av);
+  }
+  const Q = jacobi(S, mm);
+  const order = [...Array(mm).keys()].sort((a, b) => S[a * mm + a] - S[b * mm + b]).slice(0, DRUM.K);
+  const list = order.map(c => {
+    const phi = new Float64Array(n);
+    for (let j = 0; j < mm; j++) { const q = Q[j * mm + c]; for (let i = 0; i < n; i++) phi[i] += q * V[j][i]; }
+    const norm = Math.sqrt(dot(phi, phi));
+    for (let i = 0; i < n; i++) phi[i] /= norm;
+    return { lam: S[c * mm + c], phi };
+  });
+  return { at: F.at, list };
+}
+
+const drum = {
+  mask: new Uint8Array(DN), at: [], modes: [], sel: 0, hit: null, t: 0, isTuning: false, why: '',
+  u: new Float32Array(DN), env: new Float32Array(DN), grains: new Float32Array(2 * DRUM.SAND),
+  from(m) {
+    const c = coarse(DW, DH), isMatter = Uint8Array.from(c, v => v >= 0.4 ? 1 : 0);
+    const full = largestPatch(isMatter, DW, DH, 1), open = largestPatch(isMatter, DW, DH, 0);
+    let skin = full;
+    this.why = 'The skin is the biggest shape left';
+    if (full.length < 200) { skin = open; this.why = 'The skin is the biggest open stretch, held down by what was left'; }
+    if (skin.length < 60) {
+      skin = [];
+      for (let i = 0; i < DN; i++) if (Math.hypot(i % DW - DW / 2 + 0.5, (i / DW | 0) - DH / 2 + 0.5) < 15) skin.push(i);
+      this.why = 'Too little was left for a drum, so it is a round one';
+    }
+    this.mask.fill(0);
+    for (const p of skin) this.mask[p] = 1;
+    this.modes = []; this.hit = null; this.isTuning = true; this.t = 0;
+    this.u.fill(0); this.env.fill(0);
+    if (typeof setTimeout === 'function' && this.isDeferred) setTimeout(() => this.retune(), 30); else this.retune();
+  },
+  isDeferred: true,
+  retune() {
+    const { at, list } = findModes(this.mask);
+    this.at = at;
+    this.modes = list.map(({ lam, phi }) => {
+      const field = new Float32Array(DN);
+      let peak = 0, sum = 0;
+      at.forEach((p, i) => { field[p] = phi[i]; peak = Math.max(peak, Math.abs(phi[i])); sum += phi[i]; });
+      return { lam, f: DRUM.HZ * Math.sqrt(lam), field, peak, rad: 0.15 + Math.abs(sum) / Math.sqrt(at.length) };
+    });
+    this.sel = Math.min(this.modes.length - 1, 3 + Math.floor(rnd() * 6));
+    this.isTuning = false;
+    for (let g = 0; g < DRUM.SAND; g++) {
+      const p = at[Math.floor(rnd() * at.length)];
+      this.grains[2 * g] = p % DW + rnd(); this.grains[2 * g + 1] = (p / DW | 0) + rnd();
+    }
+  },
+  to(m) {
+    m.fill(0);
+    if (this.isTuning) { for (let i = 0; i < N; i++) m[i] = this.mask[Math.floor((i / W | 0) / DG) * DW + Math.floor((i % W) / DG)]; return; }
+    for (let g = 0; g < DRUM.SAND; g++) m[clamp(Math.floor(this.grains[2 * g + 1] * DG), 0, H - 1) * W + clamp(Math.floor(this.grains[2 * g] * DG), 0, W - 1)] = 1;
+  },
+  sample(field, x, y) {
+    const fx = x - 0.5, fy = y - 0.5, x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+    const at = (i, j) => (i < 0 || j < 0 || i >= DW || j >= DH) ? 0 : field[j * DW + i];
+    return (1 - ty) * ((1 - tx) * at(x0, y0) + tx * at(x0 + 1, y0)) + ty * ((1 - tx) * at(x0, y0 + 1) + tx * at(x0 + 1, y0 + 1));
+  },
+  ringTime: f => 1.4 * Math.sqrt(100 / f),
+  // u is the skin's height now, env how hard each point shakes (0 to about 1)
+  field() {
+    const { u, env, modes, at } = this;
+    u.fill(0); env.fill(0);
+    if (!modes.length) return;
+    if (this.hit) {
+      const s = this.t - this.hit.t0, live = [];
+      modes.forEach((m, k) => {
+        const a = this.hit.amp[k] * Math.exp(-s / (DRUM.SEEN_RING * this.ringTime(m.f))) / this.hit.norm;
+        if (Math.abs(a) * m.peak > 1e-3) live.push([m.field, a, 2 * Math.PI * m.f / DRUM.SLOW]);
+      });
+      if (live.length) {
+        for (const p of at) {
+          let hgt = 0, e = 0;
+          for (const [fld, a, w] of live) { const v = a * fld[p]; hgt += v * Math.sin(w * s); e += v * v; }
+          u[p] = hgt; env[p] = Math.sqrt(e);
+        }
+        return;
+      }
+      this.hit = null;
+    }
+    const m = modes[this.sel], c = Math.cos(2 * Math.PI * 1.1 * this.t);
+    for (const p of at) { const v = m.field[p] / m.peak; u[p] = v * c; env[p] = Math.abs(v); }
+  },
+  // A grain hops where the skin shakes harder than gravity holds it; where it is still, grains stay.
+  hop() {
+    const gr = this.grains, J = DRUM.JUMP, ST = DRUM.STICK;
+    for (let g = 0; g < gr.length; g += 2) {
+      const x = gr[g], y = gr[g + 1], e = this.sample(this.env, x, y);
+      if (e <= ST) continue;
+      const d = J * (e - ST) / (1 - ST) * rnd(), th = rnd() * 2 * Math.PI;
+      const nx = x + d * Math.cos(th), ny = y + d * Math.sin(th);
+      const isOnSkin = nx >= 0 && ny >= 0 && nx < DW && ny < DH && this.mask[Math.floor(ny) * DW + Math.floor(nx)] === 1;
+      if (isOnSkin) { gr[g] = nx; gr[g + 1] = ny; }
+    }
+  },
+  step(dt = 1 / 60) {
+    if (this.isTuning) return;
+    this.t += dt;
+    this.field(); this.hop(); this.hop();
+  },
+  lineX(f, cw) { return cw * Math.log(f / DRUM.FMIN) / Math.log(DRUM.FMAX / DRUM.FMIN); },
+  poke(p) {
+    if (p.kind !== 'down' || this.isTuning || !this.modes.length) return;
+    const isSpectrum = p.y > H * 0.88;
+    if (isSpectrum) {
+      let k = 0;
+      this.modes.forEach((m, i) => { if (Math.abs(this.lineX(m.f, W) - p.x) < Math.abs(this.lineX(this.modes[k].f, W) - p.x)) k = i; });
+      this.select(k);
+      return;
+    }
+    const gx = p.x / DG, gy = p.y / DG;
+    if (this.mask[Math.floor(gy) * DW + Math.floor(gx)] !== 1) return;
+    this.strike(gx, gy);
+  },
+  select(k) { this.sel = k; this.hit = null; this.playTone(this.modes[k].f); },
+  strike(x, y) {
+    const amp = this.modes.map(m => this.sample(m.field, x, y));
+    let norm = 0;
+    for (const p of this.at) { let s = 0; this.modes.forEach((m, k) => { s += (amp[k] * m.field[p]) ** 2; }); norm = Math.max(norm, s); }
+    const loud = this.modes.map((m, k) => Math.abs(amp[k]) * m.rad), top = Math.max(...loud) || 1;
+    this.hit = { t0: this.t, amp, norm: Math.sqrt(norm) || 1, loud: loud.map(v => v / top) };
+    this.playStrike(amp);
+  },
+  // a strike is a sharp push at one point: each mode starts in proportion to its shape there
+  playStrike(amp) {
+    const sr = audio().sampleRate, len = Math.floor(sr * 3.5), out = new Float32Array(len);
+    const ref = this.modes[0].peak * this.modes[0].rad;
+    this.modes.forEach((m, k) => {
+      const a = 0.3 * amp[k] * m.rad / ref;
+      if (Math.abs(a) < 1e-4 || m.f > sr / 2) return;
+      const w = 2 * Math.PI * m.f / sr, c = Math.cos(w), s = Math.sin(w), r = Math.exp(-1 / (this.ringTime(m.f) * sr));
+      let re = 1, im = 0;
+      for (let i = 0; i < len; i++) { out[i] += a * im; const nre = (re * c - im * s) * r; im = (re * s + im * c) * r; re = nre; }
+    });
+    for (let i = 0; i < len; i++) out[i] = Math.tanh(out[i]);
+    playSamples(out);
+  },
+  playTone(f) {
+    const sr = audio().sampleRate, len = Math.floor(sr * 2.2), out = new Float32Array(len), w = 2 * Math.PI * f / sr;
+    for (let i = 0; i < len; i++) out[i] = 0.18 * Math.sin(w * i) * Math.min(1, i / (0.02 * sr)) * Math.exp(-3.5 * i / len);
+    playSamples(out);
+  },
+  draw(ctx) {
+    const cw = ctx.canvas.width, ch = ctx.canvas.height, s = cw / DW;
+    this.buf ||= pixels(DW, DH);
+    const px = this.buf.px, SKIN = [74, 62, 46], CREST = [255, 196, 110], TROUGH = [79, 134, 217];
+    for (let p = 0; p < DN; p++) {
+      if (!this.mask[p]) { px[p] = rgb(11, 13, 18); continue; }
+      const v = clamp(this.u[p], -1, 1), to = v > 0 ? CREST : TROUGH, t = Math.abs(v), dim = this.isTuning ? 0.6 : 1;
+      px[p] = rgb((SKIN[0] + (to[0] - SKIN[0]) * t) * dim, (SKIN[1] + (to[1] - SKIN[1]) * t) * dim, (SKIN[2] + (to[2] - SKIN[2]) * t) * dim);
+    }
+    blit(ctx, this.buf, true);
+    if (!this.isTuning) {
+      ctx.fillStyle = '#f3e6c4';
+      const gs = Math.max(2, s * 0.2), gr = this.grains;
+      for (let g = 0; g < gr.length; g += 2) ctx.fillRect(gr[g] * s - gs / 2, gr[g + 1] * s - gs / 2, gs, gs);
+    }
+    // the spectrum: one line per mode, at its pitch; taller is louder in the last strike
+    const y0 = ch * 0.88;
+    ctx.fillStyle = 'rgba(8,9,12,0.72)'; ctx.fillRect(0, y0, cw, ch - y0);
+    this.modes.forEach((m, k) => {
+      const x = this.lineX(m.f, cw), isSel = k === this.sel && !this.hit;
+      const loud = this.hit ? this.hit.loud[k] : 0.35, hgt = (ch - y0) * (0.25 + 0.65 * loud);
+      ctx.fillStyle = isSel ? '#e9a23b' : 'rgba(243,230,196,0.55)';
+      ctx.fillRect(x - Math.max(1, s * 0.08), ch - hgt - 2, Math.max(2, s * 0.16), hgt);
+    });
+  },
+  status() {
+    if (this.isTuning) return 'listening to its shape…';
+    if (!this.modes.length) return this.why + '.';
+    const m = this.modes[this.sel];
+    return `${this.why}: ${this.at.length} nodes. Mode ${this.sel + 1} rings at ${m.f.toFixed(0)} Hz (${noteOf(m.f)}).`;
+  },
+};
+
+// ---------------------------------------------------------------- 7. slime
+// slime/'s rule, Tero, Kobayashi and Nakagaki (2007) with the sigmoid of Tero et al. (2010), on a
+// jittered triangular lattice with links to the 6 nearest and 6 next-nearest nodes. Each step one
+// flake pushes I0 in and the flakes joined to it draw it off in equal shares; Kirchhoff gives the
+// pressures (conjugate gradients); a tube's conductivity D moves towards f(|Q|) = Q^γ/(1+Q^γ),
+// with γ rising from 1 to 1.8 as the tube ages, and tubes that carry nothing die.
+const SL = { SP: 4, D0: 0.2, DT: 0.1, I0: 1, GAMMA: 1.8, AGE: 600, DEAD: 1e-6, EPS: 1e-5 };
+const slime = {
+  build() {
+    const cols = Math.floor(W / SL.SP), rows = Math.floor(H / (SL.SP * 0.866)), xs = [], ys = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      xs.push((c + 0.25 + 0.5 * (r & 1) + 0.36 * (hash(c, r) - 0.5)) * SL.SP);
+      ys.push((r + 0.5 + 0.36 * (hash(r + 99, c) - 0.5)) * SL.SP * 0.866);
+    }
+    const n = xs.length, ea = [], eb = [];
+    for (let i = 0; i < n; i++) {
+      const ci = i % cols, ri = i / cols | 0;
+      for (let r = ri; r <= ri + 2 && r < rows; r++) for (let c = Math.max(0, ci - 2); c <= ci + 2 && c < cols; c++) {
+        const j = r * cols + c;
+        if (j <= i) continue;
+        const d = Math.hypot(xs[i] - xs[j], ys[i] - ys[j]) / SL.SP;
+        const isNear = d < 1.3, isNext = d > 1.45 && d < 2.05;
+        if (isNear || isNext) { ea.push(i); eb.push(j); }
+      }
+    }
+    const E = ea.length, L = new Float32Array(E), deg = new Int32Array(n + 1);
+    for (let e = 0; e < E; e++) { L[e] = Math.hypot(xs[ea[e]] - xs[eb[e]], ys[ea[e]] - ys[eb[e]]); deg[ea[e] + 1]++; deg[eb[e] + 1]++; }
+    for (let i = 0; i < n; i++) deg[i + 1] += deg[i];
+    const adjE = new Int32Array(2 * E), adjN = new Int32Array(2 * E), fill = deg.slice(0, n);
+    for (let e = 0; e < E; e++) {
+      adjE[fill[ea[e]]] = e; adjN[fill[ea[e]]++] = eb[e];
+      adjE[fill[eb[e]]] = e; adjN[fill[eb[e]]++] = ea[e];
+    }
+    Object.assign(this, { n, E, xs: Float32Array.from(xs), ys: Float32Array.from(ys), ea: Int32Array.from(ea), eb: Int32Array.from(eb), L, start: deg, adjE, adjN });
+    this.D = new Float32Array(E); this.born = new Int32Array(E); this.covered = new Uint8Array(n);
+    this.p = new Float64Array(n); this.r = new Float64Array(n); this.z = new Float64Array(n); this.q = new Float64Array(n); this.Ap = new Float64Array(n);
+    this.b = new Float64Array(n); this.diag = new Float64Array(n);
+  },
+  nearest(x, y) {
+    let best = 0, bd = 1e9;
+    for (let i = 0; i < this.n; i++) { const d = (this.xs[i] - x) ** 2 + (this.ys[i] - y) ** 2; if (d < bd) { bd = d; best = i; } }
+    return best;
+  },
+  // Flakes: one at the middle of each lump of matter (up to nine), topped up to three by
+  // spreading points over the matter, or over the dish when nothing was left.
+  from(m) {
+    if (!this.xs) this.build();
+    const n = this.n, isMatter = new Uint8Array(n);
+    for (let i = 0; i < n; i++) isMatter[i] = m[clamp(Math.floor(this.ys[i]), 0, H - 1) * W + clamp(Math.floor(this.xs[i]), 0, W - 1)] >= 0.5 ? 1 : 0;
+    const seen = new Uint8Array(n), lumps = [];
+    for (let s = 0; s < n; s++) {
+      if (!isMatter[s] || seen[s]) continue;
+      const lump = [s];
+      seen[s] = 1;
+      for (let k = 0; k < lump.length; k++) {
+        const i = lump[k];
+        for (let a = this.start[i]; a < this.start[i + 1]; a++) {
+          const j = this.adjN[a], isNear = this.L[this.adjE[a]] < 1.3 * SL.SP;
+          if (isNear && isMatter[j] && !seen[j]) { seen[j] = 1; lump.push(j); }
+        }
+      }
+      if (lump.length >= 2) lumps.push(lump);
+    }
+    lumps.sort((a, b) => b.length - a.length);
+    const flakes = [], farEnough = i => flakes.every(f => Math.hypot(this.xs[f] - this.xs[i], this.ys[f] - this.ys[i]) > 4 * SL.SP);
+    for (const lump of lumps) {
+      if (flakes.length >= 9) break;
+      let cx = 0, cy = 0;
+      for (const i of lump) { cx += this.xs[i]; cy += this.ys[i]; }
+      cx /= lump.length; cy /= lump.length;
+      let best = lump[0], bd = 1e9;
+      for (const i of lump) { const d = (this.xs[i] - cx) ** 2 + (this.ys[i] - cy) ** 2; if (d < bd) { bd = d; best = i; } }
+      if (farEnough(best)) flakes.push(best);
+    }
+    let pool = [];
+    for (let i = 0; i < n; i++) if (isMatter[i]) pool.push(i);
+    if (pool.length < 3) pool = [...Array(n).keys()].filter(i => this.xs[i] > 8 && this.xs[i] < W - 8 && this.ys[i] > 8 && this.ys[i] < H - 8);
+    if (!flakes.length) flakes.push(pool[Math.floor(rnd() * pool.length)]);
+    while (flakes.length < 3) {
+      let best = pool[0], bd = -1;
+      for (const i of pool) {
+        const d = Math.min(...flakes.map(f => Math.hypot(this.xs[f] - this.xs[i], this.ys[f] - this.ys[i])));
+        if (d > bd) { bd = d; best = i; }
+      }
+      flakes.push(best);
+    }
+    this.flakes = flakes;
+    this.D.fill(0); this.covered.fill(0); this.t = 0; this.cache = new Map();
+    for (const f of flakes) this.covered[f] = 1;
+    this.front = flakes.slice();
+    this.measure = null;
+  },
+  to(m) {
+    m.fill(0);
+    let top = 0;
+    for (let e = 0; e < this.E; e++) top = Math.max(top, this.D[e]);
+    for (let e = 0; e < this.E; e++) {
+      if (this.D[e] < 0.01 * top) continue;
+      const a = this.ea[e], b = this.eb[e], steps = Math.ceil(this.L[e]) * 2;
+      for (let k = 0; k <= steps; k++) {
+        const x = this.xs[a] + (this.xs[b] - this.xs[a]) * k / steps, y = this.ys[a] + (this.ys[b] - this.ys[a]) * k / steps;
+        m[clamp(Math.floor(y), 0, H - 1) * W + clamp(Math.floor(x), 0, W - 1)] = 1;
+      }
+    }
+    for (const f of this.flakes) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const x = Math.floor(this.xs[f]) + dx, y = Math.floor(this.ys[f]) + dy;
+      if (x >= 0 && y >= 0 && x < W && y < H && dx * dx + dy * dy <= 5) m[y * W + x] = 1;
+    }
+  },
+  // the fresh front covers one more hop of the dish each step, laying thin new tubes
+  grow() {
+    const next = [];
+    for (const i of this.front) for (let a = this.start[i]; a < this.start[i + 1]; a++) {
+      const e = this.adjE[a], j = this.adjN[a];
+      if (this.D[e] === 0) { this.D[e] = SL.D0; this.born[e] = this.t; }
+      if (!this.covered[j]) { this.covered[j] = 1; next.push(j); }
+    }
+    this.front = next;
+  },
+  // Kirchhoff: Σ g (p_i − p_j) = b_i with g = D/L, by Jacobi-preconditioned conjugate gradients,
+  // started from the last answer for this source.
+  flow(src, sinks) {
+    const { n, p, r, z, q, Ap, b, diag, D, L, start, adjE, adjN } = this;
+    b.fill(0); b[src] = SL.I0;
+    for (const s of sinks) b[s] -= SL.I0 / sinks.length;
+    for (let i = 0; i < n; i++) { let d = SL.EPS; for (let a = start[i]; a < start[i + 1]; a++) d += D[adjE[a]] / L[adjE[a]]; diag[i] = d; }
+    const x = this.cache.get(src) || new Float64Array(n);
+    this.cache.set(src, x);
+    const mul = (v, out) => {
+      for (let i = 0; i < n; i++) {
+        let s = SL.EPS * v[i];
+        for (let a = start[i]; a < start[i + 1]; a++) { const e = adjE[a]; s += D[e] / L[e] * (v[i] - v[adjN[a]]); }
+        out[i] = s;
+      }
+    };
+    mul(x, Ap);
+    let rz = 0;
+    for (let i = 0; i < n; i++) { r[i] = b[i] - Ap[i]; z[i] = r[i] / diag[i]; q[i] = z[i]; rz += r[i] * z[i]; }
+    for (let it = 0; it < 300; it++) {
+      let rr = 0;
+      for (let i = 0; i < n; i++) rr += r[i] * r[i];
+      if (Math.sqrt(rr) < 1e-2 * SL.I0) break;
+      mul(q, Ap);
+      let qAq = 0;
+      for (let i = 0; i < n; i++) qAq += q[i] * Ap[i];
+      const alpha = rz / qAq;
+      let rz2 = 0;
+      for (let i = 0; i < n; i++) { x[i] += alpha * q[i]; r[i] -= alpha * Ap[i]; z[i] = r[i] / diag[i]; rz2 += r[i] * z[i]; }
+      const beta = rz2 / rz;
+      rz = rz2;
+      for (let i = 0; i < n; i++) q[i] = z[i] + beta * q[i];
+    }
+    p.set(x);
+  },
+  joined(src) {
+    const seen = new Uint8Array(this.n), list = [src];
+    seen[src] = 1;
+    for (let k = 0; k < list.length; k++) {
+      const i = list[k];
+      for (let a = this.start[i]; a < this.start[i + 1]; a++) {
+        const j = this.adjN[a];
+        if (this.D[this.adjE[a]] > 0 && !seen[j]) { seen[j] = 1; list.push(j); }
+      }
+    }
+    return this.flakes.filter(f => f !== src && seen[f]);
+  },
+  tick() {
+    if (this.front.length) this.grow();
+    const src = this.flakes[Math.floor(rnd() * this.flakes.length)], sinks = this.joined(src);
+    this.t++;
+    if (!sinks.length) return;
+    this.flow(src, sinks);
+    const { D, L, ea, eb, born, p } = this;
+    for (let e = 0; e < this.E; e++) {
+      if (D[e] === 0) continue;
+      const Q = Math.abs(D[e] / L[e] * (p[ea[e]] - p[eb[e]])), g = 1 + (SL.GAMMA - 1) * Math.min(1, (this.t - born[e]) / SL.AGE);
+      const qg = Math.pow(Q, g);
+      D[e] += SL.DT * (qg / (1 + qg) - D[e]);
+      if (D[e] < SL.DEAD) D[e] = 0;
+    }
+    if (this.t % 30 === 0) this.measureNow();
+  },
+  step() { const t0 = performance.now(); for (let k = 0; k < 4 && performance.now() - t0 < 6; k++) this.tick(); },
+  // tube length against the shortest tree joining the flakes town to town (Prim)
+  measureNow() {
+    let top = 0, len = 0;
+    for (let e = 0; e < this.E; e++) top = Math.max(top, this.D[e]);
+    for (let e = 0; e < this.E; e++) if (this.D[e] >= 0.01 * top) len += this.L[e];
+    const f = this.flakes, inTree = [0];
+    let mst = 0;
+    while (inTree.length < f.length) {
+      let best = Infinity, bi = -1;
+      for (let i = 0; i < f.length; i++) {
+        if (inTree.includes(i)) continue;
+        for (const j of inTree) { const d = Math.hypot(this.xs[f[i]] - this.xs[f[j]], this.ys[f[i]] - this.ys[f[j]]); if (d < best) { best = d; bi = i; } }
+      }
+      inTree.push(bi); mst += best;
+    }
+    this.measure = len / mst;
+  },
+  poke(p) {
+    if (p.kind !== 'down') return;
+    const hit = this.flakes.findIndex(f => Math.hypot(this.xs[f] - p.x, this.ys[f] - p.y) < 1.5 * SL.SP);
+    if (hit >= 0) { if (this.flakes.length > 2) this.flakes.splice(hit, 1); }
+    else this.flakes.push(this.nearest(p.x, p.y));
+    // regrow: a new front from every living node
+    this.covered.fill(0);
+    for (let e = 0; e < this.E; e++) if (this.D[e] > 0) { this.covered[this.ea[e]] = 1; this.covered[this.eb[e]] = 1; }
+    for (const f of this.flakes) this.covered[f] = 1;
+    this.front = [];
+    for (let i = 0; i < this.n; i++) if (this.covered[i]) this.front.push(i);
+    this.cache.clear();
+  },
+  draw(ctx) {
+    const cw = ctx.canvas.width, ch = ctx.canvas.height, s = cw / W;
+    ctx.fillStyle = '#16120b'; ctx.fillRect(0, 0, cw, ch);
+    let top = 0;
+    for (let e = 0; e < this.E; e++) top = Math.max(top, this.D[e]);
+    // width goes as D^¼ (Poiseuille: conductance ∝ r⁴), in 12 buckets, each one path
+    const paths = Array.from({ length: 12 }, () => new Path2D());
+    for (let e = 0; e < this.E; e++) {
+      const d = this.D[e];
+      if (d < 0.004 * top) continue;
+      const k = Math.min(11, Math.floor(12 * Math.pow(d / top, 0.25)));
+      const a = this.ea[e], b = this.eb[e];
+      paths[k].moveTo(this.xs[a] * s, this.ys[a] * s); paths[k].lineTo(this.xs[b] * s, this.ys[b] * s);
+    }
+    ctx.lineCap = 'round';
+    for (const [pass, colour, scale] of [[0, 'rgba(0,0,0,0.45)', 1.5], [1, '#d9a92b', 1], [2, 'rgba(255,236,150,0.55)', 0.35]]) {
+      paths.forEach((path, k) => {
+        ctx.lineWidth = Math.max(0.6, s * SL.SP * 0.5 * (k + 1) / 12 * scale + (pass === 0 ? s * 0.3 : 0));
+        ctx.strokeStyle = colour;
+        ctx.stroke(path);
+      });
+    }
+    for (const f of this.flakes) {
+      ctx.fillStyle = '#e8dbb4'; ctx.strokeStyle = '#8c7a52'; ctx.lineWidth = Math.max(1, s * 0.25);
+      ctx.beginPath(); ctx.ellipse(this.xs[f] * s, this.ys[f] * s, s * 2.6, s * 1.9, (f % 7) * 0.45, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    }
+  },
+  status() {
+    const nf = this.flakes.length;
+    if (this.front.length) return `${nf} flakes · spreading over the dish`;
+    if (!this.measure) return `${nf} flakes · thinning`;
+    return `${nf} flakes · the tubes are ${this.measure.toFixed(2)}× the length of the shortest tree joining flake to flake`;
+  },
+};
+
+// ---------------------------------------------------------------- 12. tune
+// tune/'s model, Sethares after Plomp and Levelt: two pure tones beat roughly when close, by
+// 5e^(-3.51 s) − 5e^(-5.75 s) with s scaled to the critical band; a note's roughness against
+// another sums that over every pair of partials. The dips of that curve are the tone's scale.
+// The tone comes from the canvas: each column is an overtone, low on the left, as loud as the
+// matter in it. Evenly spaced columns make a harmonic tone and the usual scale.
+const TUNE = { CMAX: 1300, STEP: 2, ROOT: 261.63 };
+function pl(lo, df) { const s = 0.24 / (0.0207 * lo + 18.96) * df; return 5 * Math.exp(-3.51 * s) - 5 * Math.exp(-5.75 * s); }
+const tune = {
+  from(m) {
+    const prof = new Float32Array(W);
+    for (let x = 0; x < W; x++) { let s = 0; for (let y = 0; y < H; y++) s += m[y * W + x]; prof[x] = s; }
+    const sm = Float32Array.from(prof, (v, x) => (prof[Math.max(0, x - 1)] + 2 * v + prof[Math.min(W - 1, x + 1)]) / 4);
+    const top = Math.max(...sm);
+    let peaks = [];
+    for (let x = 0; x < W; x++) {
+      const isPeak = sm[x] > 0 && sm[x] >= 0.15 * top && sm[x] >= sm[Math.max(0, x - 1)] && sm[x] > sm[Math.min(W - 1, x + 1)];
+      if (isPeak) peaks.push({ x, a: sm[x] / top });
+    }
+    // strongest first, at least four columns apart, then nine at most, left to right
+    peaks.sort((p, q) => q.a - p.a);
+    const kept = [];
+    for (const p of peaks) if (kept.length < 9 && kept.every(k => Math.abs(k.x - p.x) >= 4)) kept.push(p);
+    kept.sort((p, q) => p.x - q.x);
+    this.isDefault = kept.length < 2;
+    if (this.isDefault) { kept.length = 0; for (let k = 1; k <= 8; k++) kept.push({ x: 16 * k - 1, a: 0.88 ** (k - 1) }); }
+    this.cols = kept.map(p => p.x);
+    this.r0 = kept.map(p => (p.x + 1) / (kept[0].x + 1));
+    this.r = this.r0.slice(); this.a = kept.map(p => p.a);
+    this.drift = this.r.map(() => 0); this.vel = this.r.map(() => 0);
+    this.prof = Float32Array.from(sm, v => v / (top || 1));
+    this.ghost = Float32Array.from(m);
+    this.t = 0; this.lit = null; this.compute();
+  },
+  self(f) {
+    const { r, a } = this;
+    let D = 0;
+    for (let i = 0; i < r.length; i++) for (let j = i + 1; j < r.length; j++) { const x = f * r[i], y = f * r[j]; D += Math.min(a[i], a[j]) * (x < y ? pl(x, y - x) : pl(y, x - y)); }
+    return D;
+  },
+  cross(fa, fb) {
+    const { r, a } = this;
+    let D = 0;
+    for (let i = 0; i < r.length; i++) for (let j = 0; j < r.length; j++) { const x = fa * r[i], y = fb * r[j]; D += Math.min(a[i], a[j]) * (x < y ? pl(x, y - x) : pl(y, x - y)); }
+    return D;
+  },
+  compute() {
+    const n = TUNE.CMAX / TUNE.STEP + 1, f = TUNE.ROOT, s0 = this.self(f), c = new Float64Array(n);
+    for (let k = 0; k < n; k++) { const g = f * 2 ** (k * TUNE.STEP / 1200); c[k] = s0 + this.self(g) + this.cross(f, g); }
+    this.curve = c;
+    let lo = Infinity, hi = -Infinity;
+    for (const v of c) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    this.lo = lo; this.hi = hi;
+    // local minima standing out by more than 2% of the range
+    this.dips = [];
+    for (let k = 1; k < n - 1; k++) {
+      if (!(c[k] < c[k - 1] && c[k] <= c[k + 1])) continue;
+      let lmax = c[k], rmax = c[k];
+      for (let i = k - 1; i >= 0 && c[i] >= c[k]; i--) lmax = Math.max(lmax, c[i]);
+      for (let i = k + 1; i < n && c[i] >= c[k]; i++) rmax = Math.max(rmax, c[i]);
+      if (Math.min(lmax, rmax) - c[k] > 0.02 * (hi - lo)) this.dips.push(k * TUNE.STEP);
+    }
+  },
+  // the simplest ratio p:q (smallest p·q, at most 72) within 7¢, or null
+  ratioLabel(c) {
+    const gcd = (a, b) => b ? gcd(b, a % b) : a;
+    let best = null, bestH = 73;
+    for (let q = 1; q <= 9; q++) for (let p = q; p <= 72; p++) {
+      const isClose = Math.abs(1200 * Math.log2(p / q) - c) <= 7;
+      if (isClose && gcd(p, q) === 1 && p * q < bestH) { best = `${p}:${q}`; bestH = p * q; }
+    }
+    return best;
+  },
+  to(m) {
+    // the curve, filled below, as memory/ draws tune: rough intervals stand tall, the scale is notches
+    const span = this.hi - this.lo || 1;
+    for (let x = 0; x < W; x++) {
+      const k = Math.round((x + 0.5) / W * (this.curve.length - 1)), v = (this.curve[k] - this.lo) / span;
+      const yTop = H * (0.92 - 0.75 * v);
+      for (let y = 0; y < H; y++) m[y * W + x] = y >= yTop ? 1 : 0;
+    }
+  },
+  // the overtones dream: each partial's log pitch is a damped spring kicked by noise
+  step() {
+    this.t++;
+    for (let i = 1; i < this.r.length; i++) {
+      this.vel[i] = 0.97 * this.vel[i] - 0.002 * this.drift[i] + 0.0006 * gauss();
+      this.drift[i] += this.vel[i] * 0.05;
+      this.r[i] = this.r0[i] * Math.exp(this.drift[i]);
+    }
+    if (this.t % 8 === 0) this.compute();
+  },
+  voice(notes, dur) {
+    const sr = audio().sampleRate, len = Math.floor(sr * (notes.length > 2 ? 0.34 * notes.length + 1.2 : dur)), out = new Float32Array(len);
+    notes.forEach(([f, at]) => {
+      const n0 = Math.floor(at * sr);
+      this.r.forEach((r, k) => {
+        const fk = f * r;
+        if (fk < 20 || fk > sr * 0.45) return;
+        const w = 2 * Math.PI * fk / sr, att = 0.03 * sr;
+        for (let i = 0; n0 + i < len; i++) out[n0 + i] += this.a[k] * Math.sin(w * i) * Math.min(1, i / att) * Math.exp(-2.2 * i / sr);
+      });
+    });
+    let peak = 0;
+    for (const v of out) peak = Math.max(peak, Math.abs(v));
+    if (peak > 0) for (let i = 0; i < len; i++) out[i] *= 0.4 / peak;
+    playSamples(out);
+  },
+  poke(p) {
+    if (p.kind !== 'down') return;
+    const isSpectrum = p.y > H * 0.78, f = TUNE.ROOT;
+    if (isSpectrum) {
+      const steps = [0, ...this.dips.filter(c => c <= 1250)];
+      this.voice(steps.map((c, k) => [f * 2 ** (c / 1200), k * 0.34]), 0);
+      this.lit = { c: -1, t: this.t };
+      return;
+    }
+    let c = p.x / W * TUNE.CMAX;
+    const near = this.dips.reduce((b, d) => Math.abs(d - c) < Math.abs(b - c) ? d : b, Infinity);
+    if (Math.abs(near - c) < 40) c = near;
+    this.lit = { c, t: this.t };
+    this.voice([[f, 0], [f * 2 ** (c / 1200), 0]], 2.4);
+  },
+  draw(ctx) {
+    const cw = ctx.canvas.width, ch = ctx.canvas.height, s = cw / W;
+    ctx.fillStyle = '#0f0a0e'; ctx.fillRect(0, 0, cw, ch);
+    // what was left, faintly, behind the overtones it became
+    this.buf ||= pixels(W, H);
+    for (let i = 0; i < N; i++) this.buf.px[i] = this.ghost[i] >= 0.5 ? rgb(40, 24, 38) : rgb(15, 10, 14);
+    blit(ctx, this.buf);
+    const y1 = ch * 0.74, y0 = ch * 0.08, span = this.hi - this.lo || 1;
+    const X = c => c / TUNE.CMAX * cw, Y = v => y1 - (y1 - y0) * (1 - (v - this.lo) / span);
+    // the overtones, along the bottom, where their columns were
+    const base = ch * 0.97, tall = ch * 0.17;
+    ctx.fillStyle = 'rgba(229,143,208,0.25)';
+    for (let x = 0; x < W; x++) ctx.fillRect(x * s, base - tall * this.prof[x], s, tall * this.prof[x]);
+    ctx.fillStyle = '#f2b8e4';
+    this.cols.forEach((x, k) => {
+      const xx = (x + 1) * this.r[k] / this.r0[k] - 1;
+      ctx.fillRect(xx * s, base - tall * this.a[k], Math.max(2, s * 0.7), tall * this.a[k]);
+    });
+    // the curve: rough is up, smooth down; its dips are the scale
+    ctx.lineWidth = Math.max(1.5, s * 0.4); ctx.strokeStyle = '#e58fd0'; ctx.beginPath();
+    this.curve.forEach((v, k) => { const x = X(k * TUNE.STEP), y = Y(v); if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    ctx.stroke();
+    ctx.font = `${Math.max(10, s * 2.1) | 0}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'center';
+    for (const c of this.dips) {
+      const x = X(c), y = Y(this.curve[c / TUNE.STEP]), isLit = this.lit && Math.abs(this.lit.c - c) < 1 && this.t - this.lit.t < 90;
+      ctx.fillStyle = isLit ? '#fff' : '#f7d4ee';
+      ctx.beginPath(); ctx.arc(x, y, Math.max(2.5, s * 0.7), 0, 2 * Math.PI); ctx.fill();
+      ctx.fillStyle = 'rgba(247,212,238,0.75)';
+      ctx.fillText(this.ratioLabel(c) || `${c}¢`, x, y + Math.max(14, s * 3.4));
+    }
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(247,212,238,0.45)';
+    ctx.fillText('0¢', 4, y1 + Math.max(14, s * 3)); ctx.textAlign = 'right'; ctx.fillText(`${TUNE.CMAX}¢`, cw - 4, y1 + Math.max(14, s * 3));
+    ctx.textAlign = 'left';
+  },
+  status() {
+    const scale = this.dips.filter(c => c <= 1250).map(c => this.ratioLabel(c) || `${c}¢`);
+    const from = this.isDefault ? 'Too few columns stood out, so it is a plain string' : `${this.r.length} overtones from the columns`;
+    return `${from}. Smooth at ${scale.join(', ') || 'nowhere in particular'}.`;
+  },
+};
+
+// ---------------------------------------------------------------- not built yet
+// A placeholder that only shows the matter, until a sibling's own rule is written here.
+function stub() {
+  return {
+    v: new Float32Array(N),
+    from(m) { this.v.set(m); }, to(m) { m.set(this.v); }, step() {},
+    draw(ctx) {
+      this.buf ||= pixels(W, H);
+      for (let i = 0; i < N; i++) this.buf.px[i] = this.v[i] >= 0.5 ? rgb(150, 150, 150) : rgb(12, 12, 12);
+      blit(ctx, this.buf);
+    },
+  };
+}
+
+// ---------------------------------------------------------------- the lineage
+// In the order the threads made them. `dwell` is how long the relay stays, in seconds.
+const SIBS = [
+  { id: 'sand', thread: 1, hue: '#e2b45a', dwell: 7, rule: sand,
+    line: 'Every grain falls and piles up. Whatever was here comes down.',
+    hint: 'drag to pour sand · right-drag to scoop it away',
+    about: 'A falling-sand toy. Sand, water, oil, fire, plants, lava, steam and ice, plus four materials you can only discover.',
+    best: 'Plants growing sprigs that no rule described.' },
+  { id: 'forth', thread: 1, hue: '#7ee08a', dwell: 9, rule: forthRule,
+    line: 'Conway\'s Life, written in Forth, runs on what was left. Every frame calls the word tick.',
+    hint: 'type Forth in the box below · drag to plot',
+    about: 'A small Forth REPL with a live stack and a 64 × 64 pixel screen to plot on.',
+    best: 'Built in the first thread, alongside sand, as the language the next thread would give its bugs.' },
+  { id: 'terrarium', thread: 2, hue: '#9bc45a', dwell: 12, rule: stub(),
+    line: 'What was left becomes soil. Rain falls, plants grow, and bugs with Forth brains eat, split and mutate.',
+    hint: 'click to drop a bug',
+    about: 'Bugs whose brains are tiny Forth programs, in a world of soil, rain and plants. Children inherit mutated brains, so species evolve.',
+    best: 'A mutant inventing below bug = if eat then on its own and becoming a predator.' },
+  { id: 'ripple', thread: 3, hue: '#59c3e8', dwell: 9, rule: ripple,
+    line: 'What was left becomes glass. Waves in red, green and blue slow down in it by different amounts, so white light splits.',
+    hint: 'click to drop a pebble · drag to push a wake',
+    about: 'A ripple tank in coloured light. Slits, prisms, lenses, mirrors and Mach cones all fall out of one wave equation.',
+    best: 'A Mach cone at the right angle from a rule that knows nothing about cones, then a prism splitting white light by itself.' },
+  { id: 'drum', thread: 4, hue: '#e9a23b', dwell: 10, rule: drum,
+    line: 'The biggest shape left becomes a drum skin. One of its modes rings, and sand gathers on its still lines.',
+    hint: 'click the skin to strike it (with sound) · click a line in the spectrum to pick a mode',
+    about: 'Draw a drum, strike it and hear it. Two shapes that sound alike, sand that finds the still lines, and nothing lower than the circle.',
+    best: 'Two shapes from a 1992 paper agreeing on all 48 pitches to 14 digits.' },
+  { id: 'snow', thread: 5, hue: '#a9d4ff', dwell: 10, rule: snow,
+    line: 'What was left becomes ice, and vapour freezes onto it. Arms grow wherever the air is richest.',
+    hint: 'click to seed a crystal',
+    about: 'Two snow crystals grown side by side in a sky you steer. The ice keeps a record of the weather it froze in.',
+    best: 'Vapour contours staying round around a hexagonal plate, then arms sprouting from exactly its corners.' },
+  { id: 'slime', thread: 6, hue: '#f0d04a', dwell: 12, rule: slime,
+    line: 'Each lump left is an oat flake. The slime covers the dish, then keeps only the tubes that carry flow.',
+    hint: 'click to drop a flake, or to take one away',
+    about: 'A slime mould with no brain. It finds Steiner junctions, solves mazes and grows a rail network round Tokyo Bay.',
+    best: 'A sheet thinning to a Y at 1.01× the shortest network there is, from a rule that never measures a length.' },
+  { id: 'memory', thread: 7, hue: '#b59cf2', dwell: 8, rule: memory,
+    line: 'The net compares the canvas with the pictures it holds, one per sibling (the buttons below), and falls into the nearest.',
+    hint: 'draw a cue · right-drag to rub out · it recalls when you let go',
+    about: 'A Hopfield net holding one picture per project. It makes up a false memory, dreams it away, and its 2020 rule is attention.',
+    best: 'It couldn\'t tell its siblings apart and kept recalling their average, a face none of them has.' },
+  { id: 'tongue', thread: 8, hue: '#f08a7a', dwell: 10, rule: stub(),
+    line: 'Each learner, a small new net, sees half of the last one\'s picture and redraws all of it.',
+    hint: 'draw to hand the chain your own picture',
+    about: 'A language handed down a chain of neural nets. Random words become a grammar, but only if learners hear part of it and want to be understood.',
+    best: 'Circles named by saying nothing at all: a zero morpheme nobody asked for.' },
+  { id: 'firefly', thread: 9, hue: '#d8ff70', dwell: 10, rule: firefly,
+    line: 'A firefly for each bit left. Each one nudges its clock towards the flashes it sees, and nobody leads.',
+    hint: 'click to hang a fast lantern · right-click a slow one',
+    about: 'Synchrony with no leader: fireflies in a meadow, a crowd at Kuramoto\'s threshold, a chimera round a pond, and the Millennium Bridge.',
+    best: 'The bridge\'s sway passing a centimetre at 170 walkers, where Arup\'s real crowd said about 160.' },
+  { id: 'dune', thread: 10, hue: '#e0a96d', dwell: 12, rule: dune,
+    line: 'What was left is sand on a gravel plain. The wind lifts one slab at a time and drops it downwind.',
+    hint: 'drag to pour sand · right-drag to dig',
+    about: 'Werner\'s slab model: barchans run horns first, two winds turn the ridges at about 90°, and a cut shows cross-bedding nobody drew.',
+    best: 'Cutting open a barchan and finding cross-bedding inside, layers at the angle of repose.' },
+  { id: 'tune', thread: 11, hue: '#e58fd0', dwell: 9, rule: tune,
+    line: 'The canvas\'s columns become a tone\'s overtones. How rough two such tones sound together picks out the scale they make.',
+    hint: 'click the curve to hear that interval (with sound) · click the overtones to hear the scale',
+    about: 'The scale comes out of the instrument\'s overtones: string, stretched string, clarinet, drumhead, bell, or one you draw.',
+    best: 'Five partials moved, and the dips landed on a seven-step scale nobody in the West uses.' },
+  { id: 'soup', thread: 12, hue: '#7fd6c2', dwell: 12, rule: soup,
+    line: 'Molecules copy into the gaps, each helped by the kind before it in a ring of six. They sort themselves into spirals.',
+    hint: 'drag to drop parasites · right-drag to wipe',
+    about: 'Molecules that help each other copy form spirals, which sweep out parasites, die when stirred, and favour a strain that falls apart faster.',
+    best: 'The fragile strain\'s spirals pushing the others back, because the spirals it builds turn faster.' },
+];
+for (const s of SIBS) s.rgb = [1, 3, 5].map(k => parseInt(s.hue.slice(k, k + 2), 16));
+</script>
+
+<script>
+// ---------------------------------------------------------------- the page
+const $ = id => document.getElementById(id);
+const stage = $('stage'), ctx = stage.getContext('2d');
+const relay = { isOn: !matchMedia('(prefers-reduced-motion: reduce)').matches, t: 0, laps: 0 };
+let active = null, fade = null, pointer = null, last = performance.now();
+
+function fit() {
+  const r = stage.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(r.width * dpr), h = Math.round(r.width / 1.6 * dpr);
+  if (stage.width !== w || stage.height !== h) { stage.width = w; stage.height = h; }
+}
+addEventListener('resize', fit);
+
+function iconCanvas(id, hueRGB) {
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const x = c.getContext('2d'), img = x.createImageData(S, S), p = raster(PICTURES[id]);
+  for (let i = 0; i < S * S; i++) {
+    const isOn = p[i] > 0;
+    img.data.set(isOn ? [...hueRGB, 255] : [0, 0, 0, 0], 4 * i);
+  }
+  x.putImageData(img, 0, 0);
+  return c;
+}
+
+// the strip of siblings, and the cards
+const nav = $('siblings'), cards = $('cards');
+for (const s of SIBS) {
+  const b = document.createElement('button');
+  b.style.setProperty('--hue', s.hue);
+  b.setAttribute('aria-pressed', 'false');
+  b.title = `${s.id}: hand it the canvas`;
+  b.append(iconCanvas(s.id, s.rgb));
+  const label = document.createElement('span'); label.textContent = s.id; b.append(label);
+  const bar = document.createElement('i'); bar.className = 'bar'; b.append(bar);
+  b.addEventListener('click', () => { setRelay(false); handTo(s); });
+  s.button = b; s.bar = bar;
+  nav.append(b);
+
+  const li = document.createElement('li');
+  li.className = 'card'; li.style.setProperty('--hue', s.hue);
+  const head = document.createElement('header');
+  head.append(iconCanvas(s.id, s.rgb));
+  const h3 = document.createElement('h3'), a = document.createElement('a');
+  a.href = `${s.id}/${s.id}.html`; a.textContent = s.id; h3.append(a);
+  const when = document.createElement('div'); when.className = 'when'; when.textContent = `thread ${s.thread}`;
+  const words = document.createElement('div'); words.append(h3, when); head.append(words);
+  const about = document.createElement('p'); about.textContent = s.about;
+  const best = document.createElement('p'); best.className = 'best'; best.textContent = 'Best moment: ' + s.best;
+  li.append(head, about, best);
+  cards.append(li);
+}
+const nextSlot = document.createElement('button');
+nextSlot.className = 'next';
+nextSlot.style.setProperty('--hue', '#ebe6dd');
+nextSlot.title = 'the next thread\'s place';
+nextSlot.append(iconCanvas('next', [235, 230, 221]));
+const nextLabel = document.createElement('span'); nextLabel.textContent = 'next'; nextSlot.append(nextLabel);
+nextSlot.addEventListener('click', () => {
+  $('status').textContent = 'Kept for thread fourteen. A new project adds its own rule to this relay, and its picture to memory/.';
+});
+nav.append(nextSlot);
+
+memory.onRecall = name => {
+  for (const s of SIBS) s.button.classList.toggle('recalled', s.id === name);
+  nextSlot.classList.toggle('recalled', name === 'next');
+};
+
+// ---------------------------------------------------------------- handing over
+function handTo(s) {
+  if (s === active) return;
+  if (active) {
+    active.rule.to(M);
+    const snap = document.createElement('canvas');
+    snap.width = stage.width; snap.height = stage.height;
+    snap.getContext('2d').drawImage(stage, 0, 0);
+    fade = { c: snap, t: 0 };
+    active.button.setAttribute('aria-pressed', 'false');
+    active.bar.style.width = '0';
+  }
+  for (const t of SIBS) t.button.classList.remove('recalled');
+  nextSlot.classList.remove('recalled');
+  active = s;
+  s.rule.from(M);
+  relay.t = 0;
+  s.button.setAttribute('aria-pressed', 'true');
+  document.documentElement.style.setProperty('--accent', s.hue);
+  $('who').innerHTML = `${s.id}<small>thread ${s.thread}</small>`;
+  $('line').textContent = s.line;
+  $('hint').textContent = s.hint;
+  $('status').textContent = '';
+  $('open').href = `${s.id}/${s.id}.html`;
+  $('open').textContent = `open ${s.id} →`;
+  $('forthBar').hidden = s.id !== 'forth';
+}
+
+function setRelay(isOn) {
+  relay.isOn = isOn;
+  $('relay').innerHTML = `${isOn ? 'pause relay' : 'resume relay'} <kbd>space</kbd>`;
+}
+
+function startOver() {
+  writeTitle(M);
+  const first = SIBS[0];
+  if (active) { active.button.setAttribute('aria-pressed', 'false'); active.bar.style.width = '0'; }
+  active = null;
+  handTo(first);
+  sand.wait = 70;
+  relay.laps = 0;
+}
+
+// ---------------------------------------------------------------- the pointer
+function toGrid(e) {
+  const r = stage.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+}
+function poke(kind, isErase) {
+  if (!active.rule.poke) return;
+  const p = { ...pointer, kind, isErase };
+  // fill in a fast drag, since a frame may not land between two pointer events
+  const steps = kind === 'drag' ? Math.ceil(Math.hypot(p.x - p.px, p.y - p.py) / 1.5) : 0;
+  for (let k = 1; k < steps; k++) {
+    active.rule.poke({ ...p, x: p.px + (p.x - p.px) * k / steps, y: p.py + (p.y - p.py) * k / steps });
+  }
+  active.rule.poke(p);
+}
+stage.addEventListener('contextmenu', e => e.preventDefault());
+stage.addEventListener('pointerdown', e => {
+  const g = toGrid(e);
+  pointer = { ...g, px: g.x, py: g.y, isErase: e.button === 2 || e.ctrlKey };
+  stage.setPointerCapture(e.pointerId);
+  setRelay(false);
+  poke('down', pointer.isErase);
+});
+stage.addEventListener('pointermove', e => {
+  if (!pointer) return;
+  const g = toGrid(e);
+  pointer.px = pointer.x; pointer.py = pointer.y; pointer.x = g.x; pointer.y = g.y;
+  poke('drag', pointer.isErase);
+});
+const release = () => {
+  if (!pointer) return;
+  poke('up', pointer.isErase);
+  pointer = null;
+};
+stage.addEventListener('pointerup', release);
+stage.addEventListener('pointercancel', release);
+
+// ---------------------------------------------------------------- controls
+$('relay').addEventListener('click', () => setRelay(!relay.isOn));
+$('restart').addEventListener('click', () => { startOver(); setRelay(true); });
+addEventListener('keydown', e => {
+  const isTyping = document.activeElement === $('forthIn');
+  if (isTyping || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = SIBS.indexOf(active);
+  if (e.key === ' ') { e.preventDefault(); setRelay(!relay.isOn); }
+  else if (e.key === 'ArrowRight') { setRelay(false); handTo(SIBS[(k + 1) % SIBS.length]); }
+  else if (e.key === 'ArrowLeft') { setRelay(false); handTo(SIBS[(k + SIBS.length - 1) % SIBS.length]); }
+});
+$('forthIn').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const src = e.target.value;
+  forth.enter(src);
+  forthRule.isBroken = false;
+  $('forthOut').textContent = forth.out;
+  e.target.value = '';
+  setRelay(false);
+});
+
+// ---------------------------------------------------------------- the frame
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  fit();
+  if (pointer) poke('hold', pointer.isErase);
+  active.rule.step(dt);
+  active.rule.draw(ctx);
+  if (fade) {
+    fade.t += dt / 0.6;
+    if (fade.t >= 1) fade = null;
+    else { ctx.globalAlpha = 1 - fade.t; ctx.imageSmoothingEnabled = true; ctx.drawImage(fade.c, 0, 0, stage.width, stage.height); ctx.globalAlpha = 1; }
+  }
+  if (active.rule.status) $('status').textContent = active.rule.status();
+  if (relay.isOn) {
+    relay.t += dt;
+    active.bar.style.width = Math.min(100, 100 * relay.t / active.dwell) + '%';
+    if (relay.t >= active.dwell) {
+      const k = SIBS.indexOf(active), next = SIBS[(k + 1) % SIBS.length];
+      if (next === SIBS[0]) relay.laps++;
+      handTo(next);
+    }
+  } else active.bar.style.width = '0';
+  requestAnimationFrame(frame);
+}
+
+fit();
+startOver();
+setRelay(relay.isOn);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
