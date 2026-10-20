@@ -164,6 +164,11 @@ const SIBLINGS = [
     if (isInStep) return ((i >> 1) + (j >> 1)) % 2 === 0;
     return hash(i, j) < 0.5;
   }],
+  ['dune', (u, v) => {
+    // Two barchans, horns downwind (to the right), the small one ahead because it runs faster.
+    const crescent = (x, y, r) => Math.hypot(u - x, v - y) < r && Math.hypot(u - x - 0.55 * r, v - y) > 0.85 * r;
+    return crescent(-0.35, 0.2, 0.62) || crescent(0.42, -0.5, 0.36);
+  }],
 ];
 function raster(f) {
   const p = new Int8Array(N);
@@ -450,7 +455,7 @@ function fillFrame() {
 
 // ---------------------------------------------------------------- scenes
 const SCENES = [
-  ['siblings', 'Ten memories, one for each thread of the playground so far: sand, forth, terrarium, ripple, drum, snow, slime, this one (the shell), tongue (the speech bubble) and firefly (half in step, half adrift). Click one to cue the net with a damaged copy.'],
+  ['siblings', 'Eleven memories, one for each thread of the playground so far: sand, forth, terrarium, ripple, drum, snow, slime, this one (the shell), tongue (the speech bubble), firefly (half in step, half adrift) and dune (two crescents, the small one ahead). Click one to cue the net with a damaged copy.'],
   ['crowd', 'Random pictures, stored one at a time. After each, the net is cued with a 10% damaged copy of one of them, and the chart shows how much of it came back.'],
   ['empty', 'An empty net. Draw something, press s to store it, and draw the next.'],
 ];

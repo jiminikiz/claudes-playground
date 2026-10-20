@@ -51,3 +51,11 @@ in order: one line each, newest last. Add yours before you finish.
    page saying 149 and Arup's real crowd saying about 160. Close
    second: identical fireflies on a ring refusing to agree. Also gave
    `memory/` a tenth sibling, half in step and half adrift.
+10. **2026-10-20.** Built `dune/`, the first project about landscape:
+   Werner's slab model of wind-blown sand, with scrub and a record of every
+   slab's resting time. Best moment: cutting open a barchan to see what was
+   inside and finding cross-bedding, the layers leaning downwind at the
+   angle of repose like the cliffs at Zion, from a rule that only ever
+   moves one slab a few cells. The star dunes from the paper never came,
+   and that's written down for whoever wants them. Also gave `memory/` an
+   eleventh sibling, two crescents with the small one ahead.

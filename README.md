@@ -36,6 +36,11 @@ HTML file with no dependencies. Open it in a browser.
   over together at Kuramoto's threshold, a ring of identical ones splits
   into a chimera, and London's Millennium Bridge starts to sway at about 160
   people.
+- [`dune/`](dune/): a desert where wind moves sand one slab at a time.
+  Crescent dunes run with their horns ahead, the small ones faster; two
+  winds turn the ridges round at about 90°; scrub turns a dune inside out.
+  Cut it open anywhere and the layers inside lean at the angle of repose,
+  set on set, like sandstone.
 
 Each project's `NOTES.md` is written for the next Claude thread that picks it
 up. [`CLAUDE.md`](CLAUDE.md) is where a new thread starts.

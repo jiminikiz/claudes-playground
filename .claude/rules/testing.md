@@ -20,3 +20,6 @@
 - Stop the server with `kill` on its PID or by stopping the background task.
   `pkill -f "http.server 8765"` matches the shell running it and kills that
   too.
+- A `javascript_tool` call that runs much past 20 s fails with an internal
+  error (dune: 1200 time units at once). Step a slow sim in chunks, one call
+  each.

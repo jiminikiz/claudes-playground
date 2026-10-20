@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dune Field</title>
+<style>
+  :root {
+    --bg: #0e0b09;
+    --panel: #1a1511;
+    --line: #2e261f;
+    --text: #ece2d2;
+    --muted: #93836f;
+    --focus: #f0b45a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 760px); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #000; touch-action: none; }
+  #view { cursor: crosshair; }
+  #cut { image-rendering: pixelated; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #4a3d30; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .info { color: var(--muted); font-size: 13px; }
+  .info b { color: var(--text); font-weight: 500; }
+  #caption { color: var(--text); }
+  #read { color: var(--focus); min-height: 2.8em; }
+  .knob { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .knob input { flex: 1; min-width: 160px; accent-color: var(--focus); }
+  .knob span { color: var(--muted); font-size: 13px; }
+  #knobVal { color: var(--text); min-width: 9em; }
+  footer { color: #5a4e42; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar" id="scenes"></div>
+  <div id="caption" class="info"></div>
+  <canvas id="view" width="720" height="720"></canvas>
+  <div class="info" id="read"></div>
+  <canvas id="cut" width="720" height="190"></canvas>
+  <div class="info">Inside a dune the layers lean downwind at the angle of repose. Each one was the slip face for a moment, buried by the next as the dune crept on. Geologists call it cross-bedding; sandstone made from old deserts, like the cliffs of Zion, is full of it.</div>
+  <div class="knob">
+    <span id="knobName"></span>
+    <input id="knob" type="range" aria-label="scene knob">
+    <span id="knobVal"></span>
+  </div>
+  <div class="bar">
+    <button id="pause">pause <kbd>space</kbd></button>
+    <button id="restart">start again <kbd>r</kbd></button>
+    <button id="fast">fast <kbd>f</kbd></button>
+  </div>
+  <div class="info">Drag on the desert to pour sand, right-drag to dig it out. Point anywhere to cut the desert open along that line: the strip under the map is the cut at true scale, with each layer of sand coloured by when it came to rest.</div>
+  <div class="info">Every scene is the same rule. A slab of sand is picked up at random, carried a few cells downwind and dropped, more readily on sand than on bare ground and always in the wind shadow behind a crest. Nowhere steeper than the angle of repose. Nothing in the rule knows what a dune is.</div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun. The rule is Werner's slab model (Geology, 1995) with his parameters; the plants follow the idea of Nield and Baas's DECAL model (2008), simplified.</footer>
+</main>
+<script>
+// ---------------------------------------------------------------- the desert
+// Werner (1995): heights in slabs on an N×N torus. Slab aspect 1/3, hop l = 5 cells,
+// ps 0.6 on sand, pns 0.4 on bare ground, shadow zone 15°, repose ≈ 30° (2 slabs a cell).
+const N = 300, CAP = 96;
+const PS = 0.6, PNS = 0.4, REPOSE = 2;
+const SH = Math.tan(15 * Math.PI / 180) * 3; // shadow line's drop per cell, in slabs
+const OLD = 0xffff;                          // stamp of sand laid before the wind started
+const h = new Int32Array(N * N), veg = new Float32Array(N * N), prevH = new Int32Array(N * N);
+const layer = new Uint16Array(N * N * CAP);  // deposition stamp of each slab, bottom up
+let t = 0, hmax = 0, stampNow = 0;
+let lx = 5, ly = 0, ux = 1, uy = 0;
+
+let seed = 20261020;
+const rnd = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 4294967296; };
+const wrap = v => ((v % N) + N) % N;
+
+function setWind(x, y) {
+  lx = x; ly = y;
+  const L = Math.hypot(x, y);
+  ux = x / L; uy = y / L;
+}
+
+// In the lee of something upwind: under a 15° line from any higher point.
+function inShadow(x, y) {
+  const h0 = h[y * N + x], reach = (hmax - h0) / SH;
+  for (let d = 1; d < reach; d++) {
+    const xi = wrap(Math.round(x - ux * d)), yi = wrap(Math.round(y - uy * d));
+    if (h[yi * N + xi] - d * SH > h0) return true;
+  }
+  return false;
+}
+
+function put(c) {
+  const k = h[c]++;
+  if (k < CAP) layer[c * CAP + k] = stampNow;
+  if (h[c] > hmax) hmax = h[c];
+}
+const take = c => { h[c]--; };
+
+const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+// A slab just landed at (x, y): it rolls down the steepest drop until nothing is over repose.
+function slideDown(x, y) {
+  for (;;) {
+    const c = y * N + x;
+    let best = -1, bx = 0, by = 0;
+    for (let k = 0; k < 8; k++) {
+      const nx = wrap(x + NB[k][0]), ny = wrap(y + NB[k][1]);
+      const drop = h[c] - h[ny * N + nx];
+      if (drop > REPOSE) {
+        const g = k < 4 ? drop : drop * Math.SQRT1_2;
+        if (g > best || (g === best && rnd() < 0.5)) { best = g; bx = nx; by = ny; }
+      }
+    }
+    if (best < 0) return;
+    take(c); put(by * N + bx);
+    x = bx; y = by;
+  }
+}
+
+// A slab just left (x, y): sand above slumps into the hole, working up the steepest rise.
+function slideIn(x, y) {
+  for (;;) {
+    const c = y * N + x;
+    let best = -1, bx = 0, by = 0;
+    for (let k = 0; k < 8; k++) {
+      const nx = wrap(x + NB[k][0]), ny = wrap(y + NB[k][1]);
+      const rise = h[ny * N + nx] - h[c];
+      if (rise > REPOSE) {
+        const g = k < 4 ? rise : rise * Math.SQRT1_2;
+        if (g > best || (g === best && rnd() < 0.5)) { best = g; bx = nx; by = ny; }
+      }
+    }
+    if (best < 0) return;
+    take(by * N + bx); put(c);
+    x = bx; y = by;
+  }
+}
+
+function drop(x, y) { put(y * N + x); slideDown(x, y); }
+
+// One poll: a random cell gives up a slab unless it is bare, held by plants, or sheltered.
+// The slab hops l cells at a time until it sticks.
+function poll() {
+  const x = (rnd() * N) | 0, y = (rnd() * N) | 0, c = y * N + x;
+  if (h[c] === 0) return;
+  if (veg[c] > 0 && rnd() < veg[c]) return;
+  if (inShadow(x, y)) return;
+  take(c);
+  slideIn(x, y);
+  let px = x, py = y;
+  for (let hop = 0; hop < 400; hop++) {
+    px = wrap(px + lx); py = wrap(py + ly);
+    const p = py * N + px;
+    if (inShadow(px, py)) break;
+    let pd = h[p] > 0 ? PS : PNS;
+    if (veg[p] > 0) pd += (1 - pd) * veg[p];
+    if (rnd() < pd) break;
+  }
+  drop(px, py);
+}
+
+function refreshMax() {
+  let m = 0;
+  for (let i = 0; i < N * N; i++) if (h[i] > m) m = h[i];
+  hmax = m;
+}
+
+function clearDesert() {
+  h.fill(0); veg.fill(0); prevH.fill(0);
+  t = 0; hmax = 0; stampNow = OLD;
+}
+
+// Sand falling from upwind: `rate` slabs a cell per time unit, at random. When the whole
+// floor has risen SINK slabs, the basin subsides by that much and the bottom becomes rock,
+// which is how a desert's layers get buried and kept.
+const SINK = 32;
+function fall(rate) {
+  const n = Math.round(rate * N * N);
+  for (let i = 0; i < n; i++) { const c = (rnd() * N * N) | 0; drop(c % N, (c / N) | 0); }
+  let lo = Infinity;
+  for (let c = 0; c < N * N; c++) if (h[c] < lo) lo = h[c];
+  if (lo < SINK + 4) return;
+  for (let c = 0; c < N * N; c++) {
+    const keep = Math.min(h[c], CAP) - SINK;
+    layer.copyWithin(c * CAP, c * CAP + SINK, c * CAP + SINK + keep);
+    h[c] -= SINK; prevH[c] -= SINK;
+  }
+  sunk += SINK;
+}
+
+function scatter(mean) {
+  const total = Math.round(mean * N * N);
+  for (let i = 0; i < total; i++) put((rnd() * N * N) | 0);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) slideDown(x, y);
+  refreshMax();
+}
+
+function pile(V, cx, cy, R) {
+  for (let i = 0; i < V; i++) {
+    const a = rnd() * 2 * Math.PI, r = R * Math.sqrt(rnd());
+    drop(wrap(Math.round(cx + r * Math.cos(a))), wrap(Math.round(cy + r * Math.sin(a))));
+  }
+}
+
+// ---------------------------------------------------------------- plants
+// After Nield and Baas (2008), cut down: each season a plant grows a little, is killed by
+// erosion and by burial faster than it can grow through. Plants hold sand down and trap it.
+const plants = { on: false, G: 0.02, E: 0.3, B: 0.1, D0: 1, next: 0 };
+function season() {
+  for (let c = 0; c < N * N; c++) {
+    const dh = h[c] - prevH[c];
+    const v = veg[c] + plants.G - plants.B * Math.max(0, dh - plants.D0) - plants.E * Math.max(0, -dh);
+    veg[c] = v < 0 ? 0 : v > 1 ? 1 : v;
+    prevH[c] = h[c];
+  }
+}
+
+// ---------------------------------------------------------------- dunes, as things
+// A dune is a patch of sand at least 3 slabs deep, 8-connected, over 50 slabs.
+const label = new Int32Array(N * N);
+function findDunes() {
+  label.fill(-1);
+  const out = [], stack = [];
+  for (let s = 0; s < N * N; s++) {
+    if (h[s] < 3 || label[s] >= 0) continue;
+    const id = out.length;
+    let vol = 0, H = 0, sx = 0, cx = 0, sy = 0, cy = 0, cells = 0;
+    label[s] = id; stack.push(s);
+    while (stack.length) {
+      const c = stack.pop(), x = c % N, y = (c / N) | 0, v = h[c];
+      vol += v; cells++; if (v > H) H = v;
+      const ax = 2 * Math.PI * x / N, ay = 2 * Math.PI * y / N;
+      sx += v * Math.sin(ax); cx += v * Math.cos(ax); sy += v * Math.sin(ay); cy += v * Math.cos(ay);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const n = wrap(y + dy) * N + wrap(x + dx);
+        if (h[n] >= 3 && label[n] < 0) { label[n] = id; stack.push(n); }
+      }
+    }
+    const fx = (Math.atan2(sx, cx) * N / (2 * Math.PI) + N) % N, fy = (Math.atan2(sy, cy) * N / (2 * Math.PI) + N) % N;
+    out.push({ id, vol, H, x: fx, y: fy, cells, speed: null });
+  }
+  return out;
+}
+
+// Match each dune to the one it became DT later: moved downwind, lost or gained under 15%.
+// Its speed is an average over matches, so merges and splits start it afresh.
+const tracker = { list: [], tLast: 0, DT: 4 };
+function track() {
+  const now = findDunes(), dt = t - tracker.tLast;
+  for (const a of tracker.list) {
+    let best = null, bd = 1e9;
+    for (const b of now) {
+      if (b.vol < 50) continue;
+      let dx = b.x - a.x; if (dx < -N / 2) dx += N; if (dx > N / 2) dx -= N;
+      let dy = b.y - a.y; if (dy < -N / 2) dy += N; if (dy > N / 2) dy -= N;
+      const along = dx * ux + dy * uy, across = Math.abs(-dx * uy + dy * ux);
+      if (along < -1 || along > 4 * dt || across > 4) continue;
+      if (Math.abs(b.vol - a.vol) > 0.15 * a.vol) continue;
+      const d = across + Math.abs(along - dt * 0.5);
+      if (d < bd) { bd = d; best = { b, along }; }
+    }
+    if (best && !best.b.speed) {
+      const v = best.along / dt, b = best.b;
+      b.n = (a.n || 0) + 1;
+      b.speed = a.speed == null ? v : a.speed + (v - a.speed) / Math.min(b.n, 6);
+      b.Hs = a.Hs == null ? b.H : a.Hs + (b.H - a.Hs) / Math.min(b.n, 6);
+    }
+  }
+  tracker.list = now; tracker.tLast = t;
+}
+
+// Crest direction from the structure tensor of the slope: 0° = along the mean wind, 90° = across it.
+function crestAngle(mx, my) {
+  let jxx = 0, jyy = 0, jxy = 0;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const gx = h[y * N + wrap(x + 1)] - h[y * N + wrap(x - 1)];
+    const gy = h[wrap(y + 1) * N + x] - h[wrap(y - 1) * N + x];
+    jxx += gx * gx; jyy += gy * gy; jxy += gx * gy;
+  }
+  const slope = 0.5 * Math.atan2(2 * jxy, jxx - jyy);           // steepest direction
+  const crest = slope + Math.PI / 2, wind = Math.atan2(my, mx);
+  let a = Math.abs((crest - wind) * 180 / Math.PI) % 180;
+  if (a > 90) a = 180 - a;
+  return { deg: a, coherence: Math.hypot(jxx - jyy, 2 * jxy) / (jxx + jyy + 1e-9) };
+}
+
+// ---------------------------------------------------------------- scenes
+// Each scene: winds [[lx, ly], ...] blowing in turn for `spell` time units each, and how it starts.
+function windNear(deg, len) {
+  // the integer hop closest to `deg` with length near `len`
+  let best = null, be = 1e9;
+  for (let a = -9; a <= 9; a++) for (let b = -9; b <= 9; b++) {
+    const L = Math.hypot(a, b);
+    if (Math.abs(L - len) > 1) continue;
+    const e = Math.abs(Math.atan2(b, a) * 180 / Math.PI - deg) + 0.5 * Math.abs(L - len);
+    if (e < be) { be = e; best = [a, b]; }
+  }
+  return best;
+}
+const hopDeg = ([a, b]) => Math.atan2(b, a) * 180 / Math.PI;
+
+const SCENES = [
+  {
+    name: 'one wind', key: '1',
+    caption: 'One wind from the west and a thin scatter of sand. It gathers into crescents with their horns pointing downwind, and the small ones run faster than the big. Turn the sand up and the crescents link into ridges across the wind.',
+    knob: { name: 'sand', min: 0.5, max: 16, step: 0.5, value: 1.5, restart: true, fmt: v => `${v} slabs a cell` },
+    winds: () => [[5, 0]], spell: Infinity,
+    init(v) { scatter(v); },
+  },
+  {
+    name: 'two winds', key: '2',
+    caption: 'Two winds take turns, each blowing 40 time units, mirrored about west. Under 90° apart the dunes lie across the mean wind; over 90° they turn and run along it as long straight ridges, as Rubin and Hunter\'s rule says. Move the knob while it runs and the old dunes swing round.',
+    knob: { name: 'angle between the winds', min: 0, max: 180, step: 5, value: 135, restart: false, fmt: v => `${v}° (hops at ±${hopDeg(windNear(v / 2, 6.5)).toFixed(0)}°)` },
+    winds: v => { const [a, b] = windNear(v / 2, 6.5); return [[a, b], [a, -b]]; }, spell: 40,
+    init() { scatter(5); },
+  },
+  {
+    name: 'sandstone', key: '3',
+    caption: 'One wind, and sand settling steadily out of the air, so the floor rises and each dune climbs over the remains of the one before. Point at a dune and watch the cut: the bottoms of the cross-beds are left behind, set on set, the way old deserts turned into sandstone.',
+    knob: { name: 'sand falling', min: 0, max: 0.3, step: 0.01, value: 0.1, restart: false, fmt: v => v === 0 ? 'none' : `${v.toFixed(2)} slabs a cell per unit` },
+    winds: () => [[5, 0]], spell: Infinity,
+    init() { scatter(4); },
+    rain: true,
+  },
+  {
+    name: 'plants', key: '4',
+    caption: 'Two crescents form, then at t = 150 rain comes and scrub grows across the plain. Where sand moves fast it buries or strips the plants, but the thin horns run into scrub and are caught. The middle runs on and leaves its horns behind, drawn out into long arms that trail upwind: a barchan turned inside out, the hairpin form of a parabolic dune.',
+    knob: { name: 'plant growth', min: 0, max: 0.08, step: 0.005, value: 0.02, restart: false, fmt: v => v === 0 ? 'none' : `${(v * 100).toFixed(1)}% a season` },
+    winds: () => [[5, 0]], spell: Infinity,
+    init() { pile(24000, 70, 80, 25); pile(12000, 50, 220, 18); },
+    plantsFrom: 150,
+  },
+];
+
+let scene = SCENES[0], winds = [[5, 0]], windIdx = 0, windSince = 0, rain = 0, sunk = 0;
+let isPaused = false, isFast = false, cutRow = N / 2, cutX = N / 2, pointer = null;
+
+function applyKnob() {
+  const v = +knob.value;
+  if (scene.knob.name === 'plant growth') plants.G = v;
+  rain = scene.rain ? v : 0;
+  winds = scene.winds(v);
+  windIdx = windIdx % winds.length;
+  setWind(...winds[windIdx]);
+}
+
+function start(s) {
+  scene = s;
+  seed = 20261020 + (s.runs = (s.runs || 0) + 1) * 7919;
+  clearDesert();
+  windIdx = 0; windSince = 0;
+  plants.on = false; sunk = 0;
+  applyKnob();
+  scene.init(+knob.value);
+  stampNow = 0;
+  prevH.set(h);
+  tracker.list = findDunes(); tracker.tLast = 0;
+  readout.crest = null;
+  plants.next = scene.plantsFrom ?? Infinity;
+  drawButtons();
+  document.getElementById('caption').textContent = scene.caption;
+}
+
+function chooseScene(s) {
+  knob.min = s.knob.min; knob.max = s.knob.max; knob.step = s.knob.step; knob.value = s.knob.value;
+  document.getElementById('knobName').textContent = s.knob.name;
+  start(s);
+  showKnob();
+}
+
+// Advance by dt time units (dt · N² polls), switching winds and seasons on the way.
+function advance(dt) {
+  const end = t + dt;
+  while (t < end - 1e-9) {
+    let stepTo = Math.min(end, Math.floor(t) + 1);
+    const n = Math.round((stepTo - t) * N * N);
+    stampNow = Math.min(OLD - 1, Math.floor(t));
+    for (let i = 0; i < n; i++) poll();
+    t = stepTo;
+    if (rain > 0) fall(rain);
+    refreshMax();
+    if (t - windSince >= scene.spell) { windSince = t; windIdx = (windIdx + 1) % winds.length; setWind(...winds[windIdx]); }
+    if (t >= plants.next) { plants.on = true; season(); plants.next = t + 1; }
+    if (t - tracker.tLast >= tracker.DT) track();
+  }
+}
+
+// ---------------------------------------------------------------- drawing
+const view = document.getElementById('view'), ctx = view.getContext('2d');
+const cutCv = document.getElementById('cut'), cctx = cutCv.getContext('2d');
+const SC = view.width / N;
+const off = document.createElement('canvas'); off.width = off.height = N;
+const octx = off.getContext('2d'), img = octx.createImageData(N, N), px = new Uint32Array(img.data.buffer);
+const rgb = (r, g, b) => 0xff000000 | (Math.max(0, Math.min(255, b | 0)) << 16) | (Math.max(0, Math.min(255, g | 0)) << 8) | Math.max(0, Math.min(255, r | 0));
+const hash = (i) => { let x = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b); x ^= x >>> 13; x = Math.imul(x, 0xc2b2ae35); return ((x ^ (x >>> 16)) >>> 0) / 4294967296; };
+const grit = new Float32Array(N * N).map((_, i) => hash(i));
+
+// Low sun from the west-north-west, so stoss slopes catch it and slip faces fall into shade.
+const SUN = (() => { const az = 200 * Math.PI / 180, el = 28 * Math.PI / 180; return [Math.cos(az) * Math.cos(el), Math.sin(az) * Math.cos(el), Math.sin(el)]; })();
+const hs = new Float32Array(N * N);
+function render() {
+  let mean = 0; for (let c = 0; c < N * N; c++) mean += h[c]; mean /= N * N;
+  // heights in cell units, lightly smoothed so slab steps don't speckle the light
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const c = y * N + x;
+    hs[c] = (4 * h[c] + h[y * N + wrap(x + 1)] + h[y * N + wrap(x - 1)] + h[wrap(y + 1) * N + x] + h[wrap(y - 1) * N + x]) / 8 / 3;
+  }
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const c = y * N + x;
+    const gx = (hs[y * N + wrap(x + 1)] - hs[y * N + wrap(x - 1)]) / 2;
+    const gy = (hs[wrap(y + 1) * N + x] - hs[wrap(y - 1) * N + x]) / 2;
+    const L = Math.hypot(gx, gy, 1);
+    const lit = 0.4 + Math.max(0, (-gx * SUN[0] - gy * SUN[1] + SUN[2]) / L);
+    const g = grit[c];
+    let r, gg, b;
+    if (h[c] === 0) {
+      r = 104 + 18 * g; gg = 78 + 14 * g; b = 62 + 10 * g;               // gravel plain
+    } else {
+      const k = Math.max(0, Math.min(1, (h[c] - mean) / 30 + 0.3));
+      r = 214 + 22 * k + 8 * g; gg = 168 + 12 * k + 6 * g; b = 112 - 6 * k + 4 * g;
+      if (h[c] < 3) { const f = h[c] / 3; r = 104 + (r - 104) * (0.5 + f / 2); gg = 78 + (gg - 78) * (0.5 + f / 2); b = 62 + (b - 62) * (0.5 + f / 2); }
+    }
+    const v = veg[c];
+    if (v > 0.03) {
+      // shrubs: a patchy dark green that thickens with cover
+      const isShrub = g < v * 0.3;
+      const m = isShrub ? 0.7 : 0.1 * v;
+      r = r * (1 - m) + 62 * m; gg = gg * (1 - m) + 96 * m; b = b * (1 - m) + 46 * m;
+    }
+    px[c] = rgb(r * lit, gg * lit, b * lit);
+  }
+  octx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(off, 0, 0, view.width, view.height);
+  // cut line
+  ctx.strokeStyle = 'rgba(255,240,210,0.35)'; ctx.setLineDash([4, 6]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, (cutRow + 0.5) * SC); ctx.lineTo(view.width, (cutRow + 0.5) * SC); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = 'rgba(255,240,210,0.8)'; ctx.lineWidth = 2;
+  const x0 = cutLeft(), yy = (cutRow + 0.5) * SC;
+  ctx.beginPath(); ctx.moveTo(x0 * SC, yy); ctx.lineTo(Math.min(N, x0 + cutW) * SC, yy);
+  if (x0 + cutW > N) { ctx.moveTo(0, yy); ctx.lineTo((x0 + cutW - N) * SC, yy); }
+  ctx.stroke();
+  drawRose();
+  drawCut();
+}
+
+function drawRose() {
+  const cx = view.width - 46, cy = 46, R = 30;
+  ctx.fillStyle = 'rgba(14,11,9,0.55)'; ctx.beginPath(); ctx.arc(cx, cy, R + 8, 0, 2 * Math.PI); ctx.fill();
+  ctx.lineWidth = 2;
+  winds.forEach(([a, b], k) => {
+    const L = Math.hypot(a, b), dx = a / L, dy = b / L, isNow = k === windIdx;
+    ctx.strokeStyle = ctx.fillStyle = isNow ? '#f0b45a' : 'rgba(236,226,210,0.3)';
+    const x0 = cx - dx * R, y0 = cy - dy * R, x1 = cx + dx * R, y1 = cy + dy * R;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - dx * 8 - dy * 5, y1 - dy * 8 + dx * 5); ctx.lineTo(x1 - dx * 8 + dy * 5, y1 - dy * 8 - dx * 5); ctx.fill();
+  });
+  ctx.fillStyle = 'rgba(236,226,210,0.5)'; ctx.font = '10px ui-sans-serif, system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('wind', cx, cy + R + 20); ctx.textAlign = 'left';
+}
+
+// The cut: a window cutW cells wide round the pointer, along its row, magnified at true scale
+// (a slab is a third of a cell). The window narrows as dunes grow so the tallest still fits.
+// Each slab is coloured by when it came to rest.
+const CUT_MAX = 160, CUT_H = 100;
+let cutW = 80;
+const cutOff = document.createElement('canvas'); cutOff.width = CUT_MAX; cutOff.height = CUT_H;
+const cutCtx = cutOff.getContext('2d'), cutImg = cutCtx.createImageData(CUT_MAX, CUT_H), cpx = new Uint32Array(cutImg.data.buffer);
+const SKY = rgb(26, 21, 17), BED = rgb(70, 54, 42), OLDSAND = rgb(150, 128, 104);
+// An era's tint every ERA time units, light and dark laminae every LAMINA within it.
+const ERA = 40, LAMINA = 5;
+const TINTS = [[236, 204, 150], [226, 172, 118], [214, 160, 132], [232, 190, 112], [240, 218, 178]];
+function slabColour(s) {
+  if (s === OLD) return OLDSAND;
+  const tint = TINTS[Math.floor(s / ERA) % TINTS.length];
+  const isDark = Math.floor(s / LAMINA) % 2 === 1;
+  const age = Math.max(0, t - s), fresh = age < LAMINA ? 1 - age / LAMINA : 0;
+  const m = (isDark ? 0.9 : 1) + 0.08 * fresh;
+  return rgb(tint[0] * m, tint[1] * m, tint[2] * m);
+}
+const cutLeft = () => wrap(cutX - cutW / 2);
+function drawCut() {
+  // slab px = (width / cutW) / 3 must fit hmax + 8 slabs into the panel
+  const need = Math.ceil(cutCv.width * (hmax + 8) / (3 * (cutCv.height - 20)) / 20) * 20;
+  cutW = Math.max(80, Math.min(CUT_MAX, need));
+  cpx.fill(SKY);
+  const y = cutRow, floor = CUT_H - 2, x0 = cutLeft(), stride = CUT_MAX;
+  for (let i = 0; i < cutW; i++) {
+    const c = y * N + wrap(x0 + i);
+    for (let r = floor; r < CUT_H; r++) cpx[r * stride + i] = BED;
+    const top = Math.min(h[c], floor);
+    for (let k = 0; k < top; k++) cpx[(floor - 1 - k) * stride + i] = k < CAP ? slabColour(layer[c * CAP + k]) : OLDSAND;
+    if (veg[c] > 0.3 && top < floor - 2) { cpx[(floor - 1 - top) * stride + i] = rgb(70, 110, 52); cpx[(floor - 2 - top) * stride + i] = rgb(62, 96, 46); }
+  }
+  cutCtx.putImageData(cutImg, 0, 0);
+  cctx.imageSmoothingEnabled = false;
+  cctx.fillStyle = '#1a1511'; cctx.fillRect(0, 0, cutCv.width, cutCv.height);
+  const sx = cutCv.width / cutW, sy = sx / 3;
+  cctx.drawImage(cutOff, 0, 0, cutW, CUT_H, 0, cutCv.height - CUT_H * sy, cutCv.width, CUT_H * sy);
+  cctx.fillStyle = 'rgba(236,226,210,0.45)'; cctx.font = '11px ui-sans-serif, system-ui';
+  cctx.fillText(`the cut under the bright line, ${(sx / SC).toFixed(1)}× magnified, true scale`, 8, 14);
+}
+
+// ---------------------------------------------------------------- readout
+const readout = { crest: null, el: document.getElementById('read') };
+function updateReadout() {
+  const dunes = tracker.list.filter(d => d.vol >= 50);
+  let sand = 0; for (let i = 0; i < N * N; i++) sand += h[i];
+  const parts = [`t = ${t.toFixed(0)}`, `${dunes.length} dune${dunes.length === 1 ? '' : 's'}`, `tallest ${hmax} slabs`, `${(sand / N / N).toFixed(1)} slabs a cell`];
+  const lines = [parts.join(' · ')];
+  const timed = dunes.filter(d => d.speed != null && d.n >= 3);
+  if (scene === SCENES[0] && timed.length) {
+    timed.sort((a, b) => a.Hs - b.Hs);
+    const lo = timed[0], hi = timed[timed.length - 1];
+    const fmt = d => `${d.Hs.toFixed(0)} slabs tall at ${d.speed.toFixed(2)} cells per unit`;
+    lines.push(timed.length > 1 && hi.Hs - lo.Hs > 2 ? `Smallest timed dune ${fmt(lo)}; tallest ${fmt(hi)}.` : `One timed dune: ${fmt(hi)}.`);
+  }
+  if (scene === SCENES[1]) {
+    if (!readout.crest || t - readout.crest.t >= 10) readout.crest = { ...crestAngle(1, 0), t };
+    const { deg, coherence } = readout.crest, ang = +knob.value;
+    const isClear = coherence > 0.5;
+    const said = ang === 90 ? 'either way at exactly 90°' : ang < 90 ? 'across the mean wind' : 'along the mean wind';
+    lines.push(isClear ? `Crests lie ${deg.toFixed(0)}° from the mean wind (${deg > 45 ? 'across' : 'along'} it). Rubin and Hunter say ${said}.`
+      : `No clear crest direction yet (coherence ${coherence.toFixed(2)}). Rubin and Hunter say ${said}.`);
+  }
+  if (scene.rain) lines.push(sunk ? `The basin has sunk ${sunk} slabs, burying the lowest layers as rock.` : 'The floor is rising; the basin sinks once it has risen ' + (SINK + 4) + ' slabs everywhere.');
+  if (scene === SCENES[3]) {
+    let cover = 0; for (let i = 0; i < N * N; i++) cover += veg[i];
+    lines.push(plants.on ? `Plants cover ${(100 * cover / N / N).toFixed(0)}% of the ground.` : `Plants arrive at t = ${scene.plantsFrom}.`);
+  }
+  if (pointer) {
+    const c = pointer.y * N + pointer.x, id = label[c];
+    const d = id >= 0 ? tracker.list.find(q => q.id === id) : null;
+    let s = `Here: ${h[c]} slabs`;
+    if (d && d.vol >= 50) s += d.speed != null && d.n >= 3 ? `, a dune ${d.Hs.toFixed(0)} slabs tall moving ${d.speed.toFixed(2)} cells per unit` : ', a dune not timed yet';
+    if (veg[c] > 0.05) s += `, plants ${(100 * veg[c]).toFixed(0)}%`;
+    lines.push(s + '.');
+  }
+  readout.el.innerHTML = lines.join('<br>');
+}
+
+// ---------------------------------------------------------------- controls
+const knob = document.getElementById('knob');
+function showKnob() { document.getElementById('knobVal').textContent = scene.knob.fmt(+knob.value); }
+knob.addEventListener('input', () => { showKnob(); if (!scene.knob.restart) applyKnob(); });
+knob.addEventListener('change', () => { if (scene.knob.restart) start(scene); });
+
+const scenesBar = document.getElementById('scenes');
+function drawButtons() {
+  scenesBar.innerHTML = '';
+  for (const s of SCENES) {
+    const b = document.createElement('button');
+    b.innerHTML = `${s.name} <kbd>${s.key}</kbd>`;
+    b.setAttribute('aria-pressed', s === scene);
+    b.onclick = () => chooseScene(s);
+    scenesBar.appendChild(b);
+  }
+  document.getElementById('pause').setAttribute('aria-pressed', isPaused);
+  document.getElementById('fast').setAttribute('aria-pressed', isFast);
+}
+document.getElementById('pause').onclick = () => { isPaused = !isPaused; drawButtons(); };
+document.getElementById('restart').onclick = () => start(scene);
+document.getElementById('fast').onclick = () => { isFast = !isFast; drawButtons(); };
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
+  const s = SCENES.find(q => q.key === e.key);
+  if (s) chooseScene(s);
+  else if (e.key === ' ') { e.preventDefault(); isPaused = !isPaused; drawButtons(); }
+  else if (e.key === 'r') start(scene);
+  else if (e.key === 'f') { isFast = !isFast; drawButtons(); }
+});
+
+function cellAt(e) {
+  const r = view.getBoundingClientRect();
+  return { x: Math.max(0, Math.min(N - 1, Math.floor((e.clientX - r.left) / r.width * N))), y: Math.max(0, Math.min(N - 1, Math.floor((e.clientY - r.top) / r.height * N))) };
+}
+// Pour or dig inside the pointer event itself, so a quick drag still lands.
+let digging = null;
+function work(p) {
+  const R = 5;
+  for (let i = 0; i < 120; i++) {
+    const a = rnd() * 2 * Math.PI, r = R * Math.sqrt(rnd());
+    const x = wrap(Math.round(p.x + r * Math.cos(a))), y = wrap(Math.round(p.y + r * Math.sin(a)));
+    if (digging === 'pour') drop(x, y);
+    else if (h[y * N + x] > 0) { take(y * N + x); slideIn(x, y); }
+  }
+  refreshMax();
+}
+view.addEventListener('contextmenu', e => e.preventDefault());
+view.addEventListener('pointerdown', e => {
+  view.setPointerCapture(e.pointerId);
+  digging = e.button === 2 ? 'dig' : 'pour';
+  pointer = cellAt(e); cutRow = pointer.y; cutX = pointer.x;
+  stampNow = Math.min(OLD - 1, Math.floor(t));
+  work(pointer);
+  if (isPaused) render();
+});
+view.addEventListener('pointermove', e => {
+  pointer = cellAt(e); cutRow = pointer.y; cutX = pointer.x;
+  if (digging) work(pointer);
+  if (isPaused) render();
+});
+view.addEventListener('pointerup', () => { digging = null; });
+view.addEventListener('pointerleave', () => { if (!digging) pointer = null; });
+
+// ---------------------------------------------------------------- loop
+const BUDGET = 14; // ms of sand a frame
+let lastRead = 0;
+function frame(now) {
+  if (!isPaused) {
+    const want = isFast ? 6 : 1, t0 = performance.now();
+    let done = 0;
+    while (done < want && performance.now() - t0 < BUDGET) {
+      const dt = Math.min(0.25, want - done);
+      advance(dt); done += dt;
+    }
+  }
+  render();
+  if (now - lastRead > 250) { updateReadout(); lastRead = now; }
+  requestAnimationFrame(frame);
+}
+
+chooseScene(SCENES[0]);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

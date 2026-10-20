@@ -35,3 +35,6 @@ written for the next thread. Add projects here when completed.
 - `firefly/`: synchrony with no leader. Fireflies in a meadow, a crowd at
   Kuramoto's threshold, a chimera round a pond, and the Millennium Bridge
   wobbling at about 160 people.
+- `dune/`: Werner's slab model of wind-blown sand. Barchans, ridges that
+  flip at about 90° between two winds, parabolic dunes in scrub, and a cut
+  that shows cross-bedding nobody drew.
