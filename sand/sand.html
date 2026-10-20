@@ -129,7 +129,7 @@ const MAT = [
   { name: 'oil',   dens: 2, colors: ['#5e4226', '#684a2b', '#533a21'] },
   { name: 'fire',  dens: 0, colors: ['#ff6a00'] },
   { name: 'plant', dens: 9, colors: ['#3f9b3a', '#48a843', '#378a33', '#52b54b'] },
-  { name: 'smoke', dens: 0, colors: ['#444a55'] },
+  { name: 'smoke', dens: 0, colors: ['#8a8f9a'] }, // label colour only; drawn from smokePal
   { name: 'steam', dens: 0, colors: ['#c9d6e8', '#d5e0ee', '#bccbe0'] },
   { name: 'lava',  dens: 4, colors: ['#ff5a1f', '#ff7b26', '#e8401a', '#ff9a3c'] },
   { name: 'glass', dens: 9, colors: ['#9fd3dc', '#aedbe3', '#93c8d2', '#b9e3ea', '#a3d6df', '#e8fbff'] },
@@ -166,7 +166,7 @@ const hot = new Uint8Array(MAT.length);
 hot[FIRE] = hot[EMBER] = hot[LAVA] = 1;
 
 // Materials you can only get by making them. The discoveries line tracks these.
-const SECRETS = [GLASS, OBSIDIAN, EMBER, SNOW];
+const SECRETS = [SMOKE, GLASS, OBSIDIAN, EMBER, SNOW];
 const secret = new Uint8Array(MAT.length);
 for (const t of SECRETS) secret[t] = 1;
 

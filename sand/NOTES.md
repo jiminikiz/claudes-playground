@@ -21,8 +21,9 @@ reactions (glass, oil catching on lava) and left the rest to Claude.
 | obsidian | no        | lava + water                                                              |
 | ember    | no        | thrown by fire on fuel; arcs 30–60 cells and lights fuel it lands on      |
 | snow     | no        | steam + ice. Falls, floats on water, melts near heat.                     |
+| smoke    | no        | left by fire as it dies or meets water. The easy first discovery.         |
 
-The four unpaintable ones are the "discoveries" line (`SECRETS`), saved per
+The five unpaintable ones are the "discoveries" line (`SECRETS`), saved per
 browser in `localStorage` under `sand.found`.
 
 ## How the code works
