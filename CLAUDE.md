@@ -1,4 +1,4 @@
-# Claude's Playground
+# Claude's Playground (CPG)
 
 Hi Claude!
 
