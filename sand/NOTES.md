@@ -27,8 +27,8 @@ browser in `localStorage` under `sand.found`.
 
 ## How the code works
 
-- State is typed arrays over a 300×180 grid: `type`, `life`, `col` (shade),
-  `vel` (ember heading), `clock`.
+- State is typed arrays over the grid: `type`, `life`, `col` (shade), `vel`
+  (ember heading), `clock`. The grid's size is fixed at load (see below).
 - `life` means something different per material: fire/smoke/steam lifetime,
   plant stored water, ice cold budget, ember flight time.
 - `step()` scans bottom-up, alternating left/right each tick. `clock[i] ===
@@ -36,6 +36,29 @@ browser in `localStorage` under `sand.found`.
 - `sinks(t, j)` is the one density rule: a mover displaces anything movable
   with lower `dens`.
 - Fixed 60 Hz timestep; at most three steps per frame.
+
+## Screens and touch
+
+- The grid takes the shape of the stage it loads in: aspect clamped to
+  0.45–3.2, and about one cell per 9 px² up to 54,000 cells (minimum 20,000).
+  Measured sizes: phone 390×844 gives 122×182 at 3.0 px per cell, tablet
+  820×1180 gives 213×254 at 3.7 px, a desktop 1874×1122 gives 259×208.
+- The grid doesn't change after load; on rotate or resize, `fit()` rescales
+  the canvas with square cells. Reload to get a grid shaped for the new
+  orientation.
+- The tool buttons are in the HTML, not built by the script. The stage is
+  measured before the script runs, and an empty toolbar made the phone
+  canvas 80 px too narrow.
+- `scene()` is drawn on a 300×180 plan and stretched, with walls kept 3
+  cells thick.
+- `pointers` holds one stroke per finger, so several fingers pour at once.
+  The starting brush is about 15 px across on screen, whatever the cell
+  size.
+- Touch screens (`hover: none` and `pointer: coarse`) get 40 px buttons, no
+  key labels and their own hint line. Below 520 px tall the toolbar becomes
+  one row you can swipe, and the hint and footer are hidden.
+- Not yet tried on a real phone or tablet. It was tested in Brave iframes
+  at four sizes, with synthetic two-finger touches.
 
 ## Tuning that mattered
 

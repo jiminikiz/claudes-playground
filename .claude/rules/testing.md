@@ -26,3 +26,6 @@
 - `resize_window` may not change Brave's viewport. To check phone width,
   load the page into a 390 px `iframe` from `javascript_tool` and compare the
   frame's `scrollWidth` with its `innerWidth` (tune: 371 against 386).
+- To test multi-touch, dispatch `PointerEvent`s with `pointerType: 'touch'`
+  and distinct `pointerId`s in the frame. `setPointerCapture` throws for a
+  synthetic id, so the page should guard it (sand does).

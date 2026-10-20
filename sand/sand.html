@@ -14,20 +14,28 @@
     --focus: #e9c46a;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
   body {
     font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    display: flex; justify-content: center; padding: 16px;
+    display: flex; justify-content: center; padding: 12px; overflow: hidden;
+    -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
   }
-  main { width: min(100%, calc((100vh - 175px) * 5 / 3)); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-  .stage { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #0d0f14; }
-  canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; touch-action: none; cursor: none; }
+  main {
+    width: min(100%, 1200px); min-width: 0; height: 100%;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .stage { flex: 1 1 0; min-height: 0; display: grid; place-items: center; overflow: hidden; }
+  canvas {
+    display: block; border-radius: 8px; outline: 1px solid var(--line); background: #0d0f14;
+    image-rendering: pixelated; touch-action: none; cursor: none; -webkit-touch-callout: none;
+  }
   .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .bar .spacer { flex: 1; }
   button {
     font: inherit; color: var(--text); background: var(--panel);
     border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
     display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    touch-action: manipulation;
   }
   button:hover { border-color: #3a4152; }
   button[aria-pressed="true"] { border-color: var(--focus); }
@@ -37,6 +45,21 @@
   .info { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
   .info b { color: var(--text); font-weight: 500; }
   footer { color: #4d5363; font-size: 12px; }
+  .brush { display: inline-flex; align-items: center; gap: 8px; }
+  .brush input { width: 110px; accent-color: var(--focus); }
+  .touch-only { display: none; }
+  @media (hover: none) and (pointer: coarse) {
+    button { padding: 8px 12px; min-height: 40px; }
+    button kbd, .fine-only { display: none; }
+    .touch-only { display: inline; }
+    .brush input { width: 150px; height: 28px; }
+  }
+  @media (max-height: 520px) {
+    footer, .hint { display: none; }
+    main { gap: 6px; }
+    #tools { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+    #tools button { flex: none; }
+  }
   #found b { padding: 0 3px; border-radius: 3px; }
   #found b.new { animation: found 1.6s ease-out; }
   @keyframes found { from { background: #e9c46a55; } to { background: transparent; } }
@@ -44,12 +67,23 @@
 </head>
 <body>
 <main>
-  <div class="bar" id="tools"></div>
+  <div class="bar" id="tools">
+    <button data-mat="sand"><span class="sw"></span>sand<kbd>1</kbd></button>
+    <button data-mat="water"><span class="sw"></span>water<kbd>2</kbd></button>
+    <button data-mat="oil"><span class="sw"></span>oil<kbd>3</kbd></button>
+    <button data-mat="fire"><span class="sw"></span>fire<kbd>4</kbd></button>
+    <button data-mat="plant"><span class="sw"></span>plant<kbd>5</kbd></button>
+    <button data-mat="stone"><span class="sw"></span>stone<kbd>6</kbd></button>
+    <button data-mat="lava"><span class="sw"></span>lava<kbd>7</kbd></button>
+    <button data-mat="steam"><span class="sw"></span>steam<kbd>8</kbd></button>
+    <button data-mat="ice"><span class="sw"></span>ice<kbd>9</kbd></button>
+    <button data-mat="empty"><span class="sw erase"></span>erase<kbd>0</kbd></button>
+  </div>
   <div class="stage"><canvas id="c"></canvas></div>
   <div class="bar">
     <div class="info">
-      <span>under cursor: <b id="under">empty</b></span>
-      <span>brush: <b id="size"></b></span>
+      <span>under brush: <b id="under">empty</b></span>
+      <label class="brush">brush <input id="brush" type="range" min="0" max="30" aria-label="brush size"> <b id="size"></b></label>
       <span id="state"></span>
     </div>
     <span class="spacer"></span>
@@ -57,12 +91,22 @@
     <button id="scene">scene <kbd>r</kbd></button>
     <button id="clear">clear <kbd>c</kbd></button>
   </div>
-  <div class="info">drag to pour · right-drag to erase · scroll or [ ] for brush size</div>
+  <div class="info hint">
+    <span class="fine-only">drag to pour · right-drag to erase · scroll or [ ] for brush size</span>
+    <span class="touch-only">drag to pour · pour with several fingers at once · pick erase to rub out</span>
+  </div>
   <div class="info"><span>discoveries: <span id="found"></span></span></div>
   <footer>Made by Claude in October 2026, in a thread given over just for fun.</footer>
 </main>
 <script>
-const W = 300, H = 180, N = W * H;
+// The grid takes the shape of the screen it loads on. Cells are about 3 px or
+// more, up to 54,000 of them, so a phone gets fewer, bigger cells.
+const stageEl = document.querySelector('.stage');
+const box = stageEl.getBoundingClientRect();
+const hasBox = box.width > 0 && box.height > 0;
+const aspect = hasBox ? Math.min(3.2, Math.max(0.45, box.width / box.height)) : 5 / 3;
+const CELLS = hasBox ? Math.min(54000, Math.max(20000, Math.round((box.width * box.height) / 9))) : 54000;
+const W = Math.round(Math.sqrt(CELLS * aspect)), H = Math.round(CELLS / W), N = W * H;
 const cv = document.getElementById('c');
 cv.width = W; cv.height = H;
 const ctx = cv.getContext('2d');
@@ -442,20 +486,16 @@ const LOOSE = new Set([SAND, WATER, OIL, FIRE, STEAM, LAVA]);
 let mat = SAND;
 let brush = 4;
 let paused = false;
-let pointer = null; // { x, y, lx, ly, erase }
-let hover = null;   // { x, y }
+const pointers = new Map(); // pointerId -> { x, y, lx, ly, erase }; one per finger
+let hover = null;            // { x, y } for the ring and the readout
 
 const toolsEl = document.getElementById('tools');
 const buttons = new Map();
-for (const [t, key] of TOOLS) {
-  const b = document.createElement('button');
-  const isEraser = t === E;
-  const sw = document.createElement('span');
-  sw.className = isEraser ? 'sw erase' : 'sw';
-  if (!isEraser) sw.style.background = MAT[t].colors[0];
-  b.append(sw, isEraser ? 'erase' : MAT[t].name, Object.assign(document.createElement('kbd'), { textContent: key }));
+// The buttons are in the HTML so the stage has its final size when the grid is measured.
+for (const [t] of TOOLS) {
+  const b = toolsEl.querySelector(`[data-mat="${MAT[t].name}"]`);
+  if (t !== E) b.querySelector('.sw').style.background = MAT[t].colors[0];
   b.addEventListener('click', () => pick(t));
-  toolsEl.append(b);
   buttons.set(t, b);
 }
 
@@ -490,10 +530,13 @@ function showFound(fresh) {
   document.getElementById('found').replaceChildren(...parts);
 }
 
+const brushEl = document.getElementById('brush');
 function setBrush(r) {
   brush = Math.max(0, Math.min(30, r));
+  brushEl.value = brush;
   document.getElementById('size').textContent = brush * 2 + 1;
 }
+brushEl.addEventListener('input', () => setBrush(+brushEl.value));
 
 function setPaused(p) {
   paused = p;
@@ -525,8 +568,7 @@ function dab(cx, cy, erase) {
   }
 }
 
-function paint() {
-  const p = pointer;
+function paint(p) {
   const dist = Math.max(Math.abs(p.x - p.lx), Math.abs(p.y - p.ly));
   const steps = Math.max(1, Math.ceil(dist / Math.max(1, brush / 2)));
   for (let s = 1; s <= steps; s++) {
@@ -537,24 +579,31 @@ function paint() {
 }
 
 cv.addEventListener('pointerdown', e => {
-  cv.setPointerCapture(e.pointerId);
+  e.preventDefault();
+  try { cv.setPointerCapture(e.pointerId); } catch {} // throws for pointers the browser no longer tracks
   const c = cell(e);
   const isErase = e.button === 2 || mat === E;
-  pointer = { x: c.x, y: c.y, lx: c.x, ly: c.y, erase: isErase };
+  const p = { x: c.x, y: c.y, lx: c.x, ly: c.y, erase: isErase };
+  pointers.set(e.pointerId, p);
   hover = c;
-  paint();
+  paint(p);
 });
 cv.addEventListener('pointermove', e => {
   const c = cell(e);
   hover = c;
-  if (!pointer) return;
-  pointer.x = c.x; pointer.y = c.y;
-  paint();
+  const p = pointers.get(e.pointerId);
+  if (!p) return;
+  p.x = c.x; p.y = c.y;
+  paint(p);
 });
-const lift = () => { pointer = null; };
+const lift = e => {
+  pointers.delete(e.pointerId);
+  const isLastFinger = e.pointerType === 'touch' && pointers.size === 0;
+  if (isLastFinger) hover = null;
+};
 cv.addEventListener('pointerup', lift);
 cv.addEventListener('pointercancel', lift);
-cv.addEventListener('pointerleave', e => { if (!pointer) hover = null; });
+cv.addEventListener('pointerleave', () => { if (pointers.size === 0) hover = null; });
 cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('wheel', e => {
   e.preventDefault();
@@ -589,26 +638,32 @@ function rect(x0, y0, x1, y1, t) {
       set(y * W + x, t, startLife(t));
 }
 
+/** The starting scene, drawn on a 300 × 180 plan and stretched to the grid. Walls stay 3 cells thick. */
 function scene() {
   clear();
+  const X = v => Math.round((v / 300) * (W - 1));
+  const Y = v => Math.round((v / 180) * (H - 1));
   for (let x = 0; x < W; x++) {
-    const top = H - 14 + Math.round(4 * Math.sin(x / 23) + 2 * Math.sin(x / 7));
+    const u = (x / W) * 300;
+    const top = Y(166) + Math.round((4 * Math.sin(u / 23) + 2 * Math.sin(u / 7)) * (H / 180));
     rect(x, top, x, H - 1, SAND);
   }
   // Left basin: water under a layer of oil.
-  rect(30, 92, 32, 136, STONE);
-  rect(108, 92, 110, 136, STONE);
-  rect(30, 134, 110, 136, STONE);
-  rect(33, 104, 107, 133, WATER);
-  rect(33, 97, 107, 103, OIL);
+  const bl = X(30), br = X(110), bt = Y(92), bb = Y(136);
+  rect(bl, bt, bl + 2, bb, STONE);
+  rect(br - 2, bt, br, bb, STONE);
+  rect(bl, bb - 2, br, bb, STONE);
+  rect(bl + 3, Y(104), br - 3, bb - 3, WATER);
+  rect(bl + 3, Y(97), br - 3, Y(104) - 1, OIL);
   // Right shelf: a shallow pool with a plant at one end.
-  rect(190, 120, 280, 122, STONE);
-  rect(190, 108, 192, 119, STONE);
-  rect(278, 108, 280, 119, STONE);
-  rect(197, 112, 277, 119, WATER);
-  rect(193, 106, 196, 119, PLANT);
+  const sl = X(190), sr = X(280), sb = Y(120), st = Y(108);
+  rect(sl, sb, sr, sb + 2, STONE);
+  rect(sl, st, sl + 2, sb - 1, STONE);
+  rect(sr - 2, st, sr, sb - 1, STONE);
+  rect(sl + 7, Y(112), sr - 3, sb - 1, WATER);
+  rect(sl + 3, Y(106), sl + 6, sb - 1, PLANT);
   // A ledge to pour things over.
-  rect(140, 60, 175, 62, STONE);
+  rect(X(140), Y(60), X(175), Y(60) + 2, STONE);
 }
 
 // --- render --------------------------------------------------------------
@@ -622,12 +677,24 @@ function render() {
     else buf[i] = col[i];
   }
   ctx.putImageData(img, 0, 0);
-  if (!hover) return;
+  const rings = pointers.size ? [...pointers.values()] : [hover].filter(Boolean);
+  if (!rings.length) return;
   ctx.strokeStyle = 'rgba(255,255,255,0.45)';
   ctx.lineWidth = 0.6;
   ctx.beginPath();
-  ctx.arc(hover.x + 0.5, hover.y + 0.5, brush + 0.5, 0, Math.PI * 2);
+  for (const r of rings) {
+    ctx.moveTo(r.x + brush + 1, r.y + 0.5);
+    ctx.arc(r.x + 0.5, r.y + 0.5, brush + 0.5, 0, Math.PI * 2);
+  }
   ctx.stroke();
+}
+
+/** Scale the canvas to fit the stage, keeping its cells square. */
+function fit() {
+  const r = stageEl.getBoundingClientRect();
+  const s = Math.min(r.width / W, r.height / H);
+  cv.style.width = `${Math.floor(W * s)}px`;
+  cv.style.height = `${Math.floor(H * s)}px`;
 }
 
 function showUnder() {
@@ -641,7 +708,7 @@ function frame(now) {
   acc = Math.min(acc + now - last, DT * 3);
   last = now;
   while (acc >= DT) {
-    if (pointer) paint();
+    for (const p of pointers.values()) paint(p);
     if (!paused) step();
     acc -= DT;
   }
@@ -650,9 +717,12 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+fit();
+new ResizeObserver(fit).observe(stageEl);
 showFound();
 pick(SAND);
-setBrush(brush);
+// About a fingertip across on screen, whatever the cell size.
+setBrush(Math.max(2, Math.min(12, Math.round(15 / (cv.clientWidth / W)))));
 setPaused(false);
 scene();
 requestAnimationFrame(frame);
