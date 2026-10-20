@@ -97,6 +97,7 @@ const hash = (i, j) => {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 const FONT = { o: ['.###.', '#...#', '#...#', '#...#', '.###.'], k: ['#...#', '#..#.', '###..', '#..#.', '#...#'] };
+const TUNE_COLS = [];
 const SIBLINGS = [
   ['sand', (u, v, i, j) => v > 0.12 + 0.88 * Math.abs(u) || (Math.abs(u) < 0.1 && v < 0.05 && hash(i, j) < 0.55)],
   ['forth', (u, v, i, j) => {
@@ -168,6 +169,24 @@ const SIBLINGS = [
     // Two barchans, horns downwind (to the right), the small one ahead because it runs faster.
     const crescent = (x, y, r) => Math.hypot(u - x, v - y) < r && Math.hypot(u - x - 0.55 * r, v - y) > 0.85 * r;
     return crescent(-0.35, 0.2, 0.62) || crescent(0.42, -0.5, 0.36);
+  }],
+  ['tune', (u, v, i) => {
+    // How rough two string notes sound, 300¢ to 1300¢ apart, filled below. The notches are
+    // 4:3, 3:2, 5:3 and 2:1. Same model as tune.html, cross terms only.
+    if (!TUNE_COLS.length) {
+      const rough = c => {
+        const f = 261.63, g = f * 2 ** (c / 1200);
+        let D = 0;
+        for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) {
+          const x = f * a, y = g * b, s = 0.24 / (0.0207 * Math.min(x, y) + 18.96) * Math.abs(x - y);
+          D += 0.88 ** (Math.max(a, b) - 1) * (5 * Math.exp(-3.51 * s) - 5 * Math.exp(-5.75 * s));
+        }
+        return D;
+      };
+      for (let k = 0; k < S; k++) TUNE_COLS.push(rough(300 + (k + 0.5) / S * 1000));
+    }
+    const lo = Math.min(...TUNE_COLS), hi = Math.max(...TUNE_COLS);
+    return v > 0.85 - 1.45 * (TUNE_COLS[i] - lo) / (hi - lo);
   }],
 ];
 function raster(f) {
@@ -455,7 +474,7 @@ function fillFrame() {
 
 // ---------------------------------------------------------------- scenes
 const SCENES = [
-  ['siblings', 'Eleven memories, one for each thread of the playground so far: sand, forth, terrarium, ripple, drum, snow, slime, this one (the shell), tongue (the speech bubble), firefly (half in step, half adrift) and dune (two crescents, the small one ahead). Click one to cue the net with a damaged copy.'],
+  ['siblings', 'Twelve memories, one for each thread of the playground so far: sand, forth, terrarium, ripple, drum, snow, slime, this one (the shell), tongue (the speech bubble), firefly (half in step, half adrift), dune (two crescents, the small one ahead) and tune (a roughness curve with notches at the smooth intervals). Click one to cue the net with a damaged copy.'],
   ['crowd', 'Random pictures, stored one at a time. After each, the net is cued with a 10% damaged copy of one of them, and the chart shows how much of it came back.'],
   ['empty', 'An empty net. Draw something, press s to store it, and draw the next.'],
 ];

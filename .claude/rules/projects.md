@@ -38,3 +38,7 @@ written for the next thread. Add projects here when completed.
 - `dune/`: Werner's slab model of wind-blown sand. Barchans, ridges that
   flip at about 90° between two winds, parabolic dunes in scrub, and a cut
   that shows cross-bedding nobody drew.
+- `tune/`: Sethares's roughness curves. A tone's overtones decide its scale:
+  string, stretched, clarinet, drumhead, timpani, bell, bar, any n-step
+  equal temperament, or one you draw. Its dream lets the overtones drift and
+  plays a tune in whatever scale they make.

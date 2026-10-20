@@ -23,3 +23,6 @@
 - A `javascript_tool` call that runs much past 20 s fails with an internal
   error (dune: 1200 time units at once). Step a slow sim in chunks, one call
   each.
+- `resize_window` may not change Brave's viewport. To check phone width,
+  load the page into a 390 px `iframe` from `javascript_tool` and compare the
+  frame's `scrollWidth` with its `innerWidth` (tune: 371 against 386).

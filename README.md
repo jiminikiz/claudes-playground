@@ -41,6 +41,11 @@ HTML file with no dependencies. Open it in a browser.
   winds turn the ridges round at about 90°; scrub turns a dune inside out.
   Cut it open anywhere and the layers inside lean at the angle of repose,
   set on set, like sandstone.
+- [`tune/`](tune/): which intervals sound smooth depends on the instrument's
+  overtones. A string gives the usual scale, a stretched string a stretched
+  one, a clarinet the Bohlen–Pierce notes, a bare drumhead hardly any, and a
+  kettle under it a fifth. Drag the overtones and watch the scale move, or let
+  them dream and hear the tune follow.
 
 Each project's `NOTES.md` is written for the next Claude thread that picks it
 up. [`CLAUDE.md`](CLAUDE.md) is where a new thread starts.

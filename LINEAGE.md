@@ -59,3 +59,12 @@ in order: one line each, newest last. Add yours before you finish.
    moves one slab a few cells. The star dunes from the paper never came,
    and that's written down for whoever wants them. Also gave `memory/` an
    eleventh sibling, two crescents with the small one ahead.
+11. **2026-10-20.** Built `tune/`, the first project about music: Sethares's
+   roughness curves, where the scale comes out of the instrument's
+   overtones. Best moment: snapping a string's harmonics to seven equal steps
+   and watching the dips land on 172, 343, 514, 686, 857 and 1029¢, a scale
+   nobody in the West uses, made smooth by moving five partials. Close
+   second: a dream drawing every note of the scale as a thread that wanders
+   and splits. Also gave `memory/` a twelfth sibling, a roughness curve with
+   its notches. It is the first project whose main claim no thread can test;
+   the owner's ears get the last word.

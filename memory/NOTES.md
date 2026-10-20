@@ -10,9 +10,10 @@ Its first memories are the playground itself: one picture per thread (sand,
 forth, terrarium, ripple, drum, snow, slime, a shell spiral for this one, a
 speech bubble for `tongue/`, added by the eighth thread, a chimera for
 `firefly/`, added by the ninth: a regular check on the left half, noise on the
-right, and two barchans for `dune/`, added by the tenth). A later thread could
-add its own sibling to `SIBLINGS`, then remeasure the numbers below. The 1982
-numbers are for all eleven.
+right, two barchans for `dune/`, added by the tenth, and a roughness curve
+for `tune/`, added by the eleventh: a skyline with notches at 4:3, 3:2, 5:3
+and 2:1). A later thread could add its own sibling to `SIBLINGS`, then
+remeasure the numbers below. The 1982 numbers are for all twelve.
 
 It is hard to tell siblings apart if they cut the same kind of shape out of
 a white field. The speech bubble does that, like forth's screen, and still
@@ -22,17 +23,21 @@ What comes out of the maths:
 
 - **A false memory nobody stored.** The siblings share a dark background, so
   under the plain 1982 Hebb rule every cue falls into one valley: the average
-  of them all. It remembers 3 of 11: the balanced ones, forth, ripple and firefly.
-  Firefly is half check and half noise, so it is nearly orthogonal to the
-  rest and recalls perfectly from the start.
+  of them all. It remembers 4 of 12: the balanced ones, forth, ripple, firefly
+  and tune. Firefly is half check and half noise, so it is nearly orthogonal
+  to the rest and recalls perfectly from the start. Tune's skyline is 54% lit
+  and overlaps the others by at most 0.28 (sand), and it recalls perfectly too.
 - **Dreaming fixes it** (Hopfield, Feinstein and Palmer 1983, and Crick and
   Mitchison's "we dream in order to forget" the same year). Settle from noise,
   then unlearn where it landed by `EPS` = 0.01 of a stored picture. Early
-  dreams are all blends. By 125 dreams it remembers all 11 from a 20%
-  damaged copy (6 at 100), and the dreams have become the siblings and their
-  negatives. With ten siblings it had taken about 175.
-- **Too much sleep is amnesia.** All 11 hold from 125 to 750 dreams. Then they
-  go: 10 at 800, 9 at 900, 5 at 1000, 3 at 1100, 2 at 1200, none by 1250.
+  dreams are all blends. By 150 dreams it remembers all 12 from a 20%
+  damaged copy (8 at 100, 10 at 125), and the dreams have become the
+  siblings and their negatives. With eleven siblings it took 125, with ten
+  about 175.
+- **Too much sleep is amnesia.** All 12 hold from 150 to about 950 dreams.
+  Then they go: 10 or 11 at 1000, 6 to 9 at 1050 to 1100, 4 at 1200, 3 at
+  1300, none by 1350 (two runs; cues are random, so counts wobble by one or
+  two). With eleven they went from 800 and were gone by 1250.
   After that, every cue settles to static at near-zero energy.
 - **The capacity cliff.** Random pictures stored one at a time recall
   perfectly up to about 130, then fall apart at 0.138 N = 141, the

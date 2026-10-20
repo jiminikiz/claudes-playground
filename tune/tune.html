@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tune</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141821;
+    --line: #262b38;
+    --text: #d9dce4;
+    --muted: #7d8496;
+    --focus: #e9c46a;
+    --gold: #f0b94a;
+    --ghost: #4d5568;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 900px); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #07090d; touch-action: none; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .bar .spacer { flex: 1; }
+  .bar .label { color: var(--muted); font-size: 13px; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #3a4152; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .info { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .info b { color: var(--text); font-weight: 500; }
+  #caption { color: var(--text); }
+  .lower { display: flex; gap: 12px; align-items: flex-start; }
+  .lower canvas { width: min(100%, 440px); flex: none; }
+  .side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; color: var(--muted); font-size: 13px; }
+  .side b { color: var(--text); font-weight: 500; }
+  .chord { color: var(--gold); cursor: pointer; white-space: nowrap; }
+  .chord:hover { text-decoration: underline; }
+  @media (max-width: 700px) { .lower { flex-direction: column; } .lower canvas { width: 100%; } }
+  footer { color: #4d5363; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar" id="tones"></div>
+  <div id="caption" class="info"></div>
+  <canvas id="spec" width="900" height="150"></canvas>
+  <div class="info"><span id="specHover">each bar is one overtone: across is its pitch as a multiple of the note, up is how loud · drag a bar to move it · double-click to add or remove one</span></div>
+  <canvas id="curve" width="900" height="250"></canvas>
+  <div class="info"><span id="curveHover">how rough two of these notes sound together, from unison to 2000¢ apart · the dips are the intervals that sound smooth, and they are this tone's scale · click anywhere to hear that interval · the keys under the dips play them too</span></div>
+  <canvas id="record" width="900" height="110"></canvas>
+  <div class="info">every scale this tone has had, newest at the top: a row is added each time the overtones change</div>
+  <div class="lower">
+    <canvas id="map" width="440" height="440"></canvas>
+    <div class="side">
+      <div>Three notes at once: the root, a lower note across and an upper note up. Bright is smooth. Click to hear a chord.</div>
+      <div id="mapHover">&nbsp;</div>
+      <div id="octave"></div>
+      <div id="smooth"></div>
+      <div id="valleyList"></div>
+    </div>
+  </div>
+  <div class="bar">
+    <button id="scale">scale <kbd>space</kbd></button>
+    <button id="chords">chords <kbd>p</kbd></button>
+    <button id="dream">dream <kbd>d</kbd></button>
+    <span class="spacer"></span>
+    <span class="label">register</span>
+    <button id="down">lower <kbd>,</kbd></button>
+    <span id="reg" class="label"></span>
+    <button id="up">higher <kbd>.</kbd></button>
+  </div>
+  <div class="info"><span>dream lets the overtones wander, and the tone plays a tune in whatever scale it has at that moment</span></div>
+  <div class="bar">
+    <span class="label">Sethares's test, the same chords four ways:</span>
+    <button data-test="0">① string, scale on 2:1</button>
+    <button data-test="1">② stretched, scale on 2.1:1</button>
+    <button data-test="2">③ string, scale on 2.1:1</button>
+    <button data-test="3">④ stretched, scale on 2:1</button>
+  </div>
+  <div class="info">If consonance lives in the intervals, ① and ③ sound alike. If it lives in the tone and scale fitting each other, ① and ② sound in tune and ③ and ④ sound sour.</div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun.</footer>
+</main>
+<script>
+const CMAX = 2000;            // the curve runs from unison to this many cents
+const MAP = 150;              // triad map cells per side
+const Q = 0.88;               // each overtone of a stock tone is this much quieter than the last
+const REGS = [['C2', 65.41], ['C3', 130.81], ['C4', 261.63], ['C5', 523.25], ['C6', 1046.5]];
+const SPEC_LO = 0.4, SPEC_HI = 16;
+let reg = 2;
+const f0 = () => REGS[reg][1];
+const cents = r => 1200 * Math.log2(r);
+const ratio = c => 2 ** (c / 1200);
+
+// ---------------------------------------------------------------- tones
+const harm = n => Array.from({ length: n }, (_, k) => k + 1);
+const fall = n => Array.from({ length: n }, (_, k) => Q ** k);
+const tetTone = n => harm(9).map(k => 2 ** (Math.round(n * Math.log2(k)) / n));
+let tet = 10;
+
+const PRESETS = {
+  string: {
+    r: harm(8), a: fall(8), kind: 'held',
+    caption: 'A string\'s overtones are whole multiples of its note. Its dips fall on 6:5, 5:4, 4:3, 3:2, 5:3 and 2:1, the intervals of Western harmony, which twelve equal steps only approximate.',
+  },
+  stretched: {
+    r: harm(8).map(k => 2.1 ** Math.log2(k)), a: fall(8), kind: 'held',
+    caption: 'The string with every overtone moved so that its octave is 2.1:1. The dips move with them: its smoothest octave is now 2.1:1 and its fifth is stretched too. The test at the bottom plays it in a scale stretched to match, and in the usual one.',
+  },
+  clarinet: {
+    r: [1, 3, 5, 7, 9, 11, 13], a: fall(7), kind: 'held',
+    caption: 'A clarinet\'s bore gives mostly odd overtones. Its curve has no dip at 2:1; its deepest is 3:1, the twelfth it overblows to. Dips such as 9:7, 7:5, 5:3, 9:5 and 7:3 are notes of the Bohlen–Pierce scale, which divides 3:1 instead of 2:1.',
+  },
+  skin: {
+    r: [1, 1.594, 2.136, 2.296, 2.653, 2.918, 3.156, 3.501, 3.600], a: [1, .8, .6, .5, .4, .3, .3, .2, .2], kind: 'struck', ring: 0.7,
+    caption: 'An ideal round drumhead. Its modes sit at zeros of Bessel functions, which share no common measure. The curve is a field of shallow dips with none at 2:1: there is hardly a scale in it.',
+  },
+  timpani: {
+    r: [1, 1.5, 1.98, 2.44, 2.90], a: [1, .8, .6, .4, .3], kind: 'struck', ring: 1.6,
+    caption: 'The same skin over a kettle. The air it has to push pulls its modes down to about 1 : 1.5 : 2 : 2.44 : 2.9 (Rossing, 1992), close to overtones 2 to 6 of a note an octave lower. Now it has a clean fifth and a nearly true octave, which the bare skin lacks.',
+  },
+  bell: {
+    r: [0.5, 1, 1.2, 1.5, 2, 2.5, 3, 4], a: [.6, .8, 1, .6, .9, .4, .3, .2], kind: 'struck', ring: 4,
+    caption: 'A tuned church bell: hum, prime, tierce, quint and nominal at 1/2, 1, 6/5, 3/2 and 2 times the prime, then higher partials. The tierce is a minor third, inside every note. Even so, this curve finds the major chord a touch smoother than the minor.',
+  },
+  bar: {
+    r: [1, 2.756, 5.404, 8.933], a: [1, .5, .3, .15], kind: 'struck', ring: 2,
+    caption: 'A free metal bar, as in a glockenspiel: overtones at 2.76, 5.40 and 8.93 times its note. Marimba makers carve an arch under the bar to pull the first one down to 4, two octaves up. Drag it to 4 here: the curve goes smooth from 1100¢ to 2000¢, where the bare bar was rough.',
+  },
+  tet: {
+    r: tetTone(10), a: fall(9), kind: 'held',
+    caption: '',
+  },
+};
+const tetCaption = () => `A string whose overtones are moved to the nearest step of ${tet} equal steps to the octave (Sethares's recipe). Now ${tet}-tone equal temperament is the smooth one: the dips land on its steps. − and + change the number.`;
+
+let tone, presetName = 'string', ghost = null;
+
+function setPreset(name) {
+  if (tone) ghost = curve.slice();
+  const p = PRESETS[name];
+  if (name === 'tet') p.r = tetTone(tet);
+  presetName = name;
+  tone = { name, r: p.r.slice(), a: p.a.slice(), kind: p.kind, ring: p.ring || 0 };
+  stopDream();
+  document.getElementById('caption').textContent = name === 'tet' ? tetCaption() : p.caption;
+  for (const b of document.querySelectorAll('[data-tone]')) b.setAttribute('aria-pressed', b.dataset.tone === name);
+  recordBreak = true;
+  refresh(true);
+}
+
+// ---------------------------------------------------------------- roughness
+// Plomp and Levelt's curve for two pure tones, in Sethares's form (his dissmeasure.m). Each pair
+// of partials adds min(amplitudes) times this; the width scales with the lower frequency.
+function pl(lo, df) {
+  const s = 0.24 / (0.0207 * lo + 18.96) * df;
+  return 5 * Math.exp(-3.51 * s) - 5 * Math.exp(-5.75 * s);
+}
+let amin = [];
+function prepare() {
+  const n = tone.r.length;
+  amin = [];
+  for (let i = 0; i < n; i++) { amin.push([]); for (let j = 0; j < n; j++) amin[i].push(Math.min(tone.a[i], tone.a[j])); }
+}
+// Roughness between a note at fa and one at fb.
+function cross(fa, fb) {
+  const r = tone.r, n = r.length;
+  let D = 0;
+  for (let i = 0; i < n; i++) {
+    const x = fa * r[i];
+    for (let j = 0; j < n; j++) {
+      const y = fb * r[j];
+      D += amin[i][j] * (x < y ? pl(x, y - x) : pl(y, x - y));
+    }
+  }
+  return D;
+}
+// Roughness among one note's own partials.
+function self(f) {
+  const r = tone.r, n = r.length;
+  let D = 0;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const x = f * r[i], y = f * r[j];
+    D += amin[i][j] * (x < y ? pl(x, y - x) : pl(y, x - y));
+  }
+  return D;
+}
+
+let curve = new Float64Array(CMAX + 1), valleys = [], period = 1200;
+function computeCurve() {
+  const f = f0(), s0 = self(f);
+  for (let c = 0; c <= CMAX; c++) { const g = f * ratio(c); curve[c] = s0 + self(g) + cross(f, g); }
+  valleys = findValleys(curve);
+  period = findPeriod(curve, valleys);
+}
+// Local minima that stand out from their surroundings by more than 2% of the curve's range.
+function findValleys(c) {
+  let lo = Infinity, hi = -Infinity;
+  for (const v of c) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  const out = [];
+  for (let k = 1; k < c.length - 1; k++) {
+    const isMin = c[k] < c[k - 1] && c[k] <= c[k + 1];
+    if (!isMin) continue;
+    let lmax = c[k], rmax = c[k];
+    for (let i = k - 1; i >= 0 && c[i] >= c[k]; i--) lmax = Math.max(lmax, c[i]);
+    for (let i = k + 1; i < c.length && c[i] >= c[k]; i++) rmax = Math.max(rmax, c[i]);
+    const prom = Math.min(lmax, rmax) - c[k];
+    if (prom > 0.02 * (hi - lo)) out.push({ c: k, prom: prom / (hi - lo) });
+  }
+  return out;
+}
+// The tone's own octave: the first dip past 1000¢ nearly as deep as the deepest one there.
+function findPeriod(c, vs) {
+  const far = vs.filter(v => v.c >= 1000);
+  if (!far.length) return 1200;
+  const sorted = Float64Array.from(c).sort(), med = sorted[c.length >> 1];
+  const vmin = Math.min(...far.map(v => c[v.c]));
+  return far.find(v => c[v.c] <= vmin + 0.25 * (med - vmin)).c;
+}
+
+// The simplest ratio p:q (smallest p·q, at most 72) within 7¢, or null.
+function ratioLabel(c) {
+  let best = null, bestH = 73;
+  for (let q = 1; q <= 9; q++) for (let p = q; p <= 72; p++) {
+    const isClose = Math.abs(cents(p / q) - c) <= 7;
+    const isReduced = gcd(p, q) === 1;
+    if (isClose && isReduced && p * q < bestH) { best = `${p}:${q}`; bestH = p * q; }
+  }
+  return best;
+}
+function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+function chordLabel(c1, c2) {
+  for (let k = 1; k <= 12; k++) {
+    const x = k * ratio(c1), y = k * ratio(c2);
+    const fits = Math.abs(cents(x / Math.round(x))) <= 8 && Math.abs(cents(y / Math.round(y))) <= 8;
+    if (fits) return `${k}:${Math.round(x)}:${Math.round(y)}`;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------- triad map
+let mapD = new Float64Array(MAP * MAP), mapSpan = 1200, mapMins = [];
+function computeMap(m = MAP) {
+  mapSpan = period;
+  const f = f0(), fs = [], sl = [], cr = [];
+  for (let i = 0; i < m; i++) { fs.push(f * ratio(mapSpan * i / (m - 1))); sl.push(self(fs[i])); cr.push(cross(f, fs[i])); }
+  const s0 = self(f);
+  mapD = new Float64Array(m * m).fill(NaN);
+  for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++)
+    mapD[j * m + i] = s0 + sl[i] + sl[j] + cr[i] + cr[j] + cross(fs[i], fs[j]);
+  mapRes = m;
+  mapMins = [];
+  for (let i = 1; i < m - 1; i++) for (let j = i + 1; j < m - 1; j++) {
+    const v = mapD[j * m + i];
+    let isMin = true;
+    for (let di = -1; di <= 1 && isMin; di++) for (let dj = -1; dj <= 1; dj++) {
+      const w = mapD[(j + dj) * m + i + di];
+      const isLower = (di || dj) && w <= v;
+      if (isLower) { isMin = false; break; }
+    }
+    const c1 = mapSpan * i / (m - 1), c2 = mapSpan * j / (m - 1);
+    const isTriad = c1 > 50 && c2 - c1 > 50 && mapSpan - c2 > 50;
+    if (isMin && isTriad) mapMins.push({ c1, c2, D: v });
+  }
+  // Keep the minima among the smoothest fifth of all chords; the rest are ripples in rough ground.
+  const vals = Array.from(mapD).filter(v => v === v).sort((x, y) => x - y), cut = vals[Math.floor(vals.length * 0.2)];
+  mapMins = mapMins.filter(p => p.D <= cut).sort((x, y) => x.D - y.D);
+}
+const TOP = 8;  // minima ringed and listed; the rest get a dot
+let mapRes = MAP;
+
+// ---------------------------------------------------------------- drawing
+const spec = document.getElementById('spec'), sx = spec.getContext('2d');
+const cv = document.getElementById('curve'), cx = cv.getContext('2d');
+const rec = document.getElementById('record'), rx = rec.getContext('2d');
+const map = document.getElementById('map'), mx = map.getContext('2d');
+const GOLD = '#f0b94a', MUTED = '#7d8496', GRID = '#1a1f2a', TEXT = '#d9dce4';
+const CL = 14, CR = 14, CT = 14, CB = 46;
+const curveX = c => CL + (cv.width - CL - CR) * c / CMAX;
+const specX = r => 10 + (spec.width - 20) * Math.log(r / SPEC_LO) / Math.log(SPEC_HI / SPEC_LO);
+const specR = x => SPEC_LO * (SPEC_HI / SPEC_LO) ** ((x - 10) / (spec.width - 20));
+const SPEC_BASE = 128, SPEC_TOP = 14;
+const KEYS = '1234567890qwertyuio';  // keys that play the dips, in order
+let hoverC = null, hoverPartial = -1, hoverMap = null;
+
+function drawSpec() {
+  const W = spec.width, H = spec.height;
+  sx.clearRect(0, 0, W, H);
+  sx.font = '11px ui-monospace, monospace'; sx.textAlign = 'center';
+  for (let k = 1; k <= 16; k++) {
+    const x = specX(k);
+    sx.fillStyle = GRID; sx.fillRect(x, SPEC_TOP, 1, SPEC_BASE - SPEC_TOP);
+    const isLabelled = k <= 8 || k % 2 === 0;
+    if (isLabelled) { sx.fillStyle = '#4d5363'; sx.fillText(k, x, H - 8); }
+  }
+  sx.fillStyle = '#4d5363'; sx.fillText('½', specX(0.5), H - 8);
+  sx.fillStyle = '#262b38'; sx.fillRect(10, SPEC_BASE, W - 20, 1);
+  tone.r.forEach((r, k) => {
+    const x = specX(r), h = tone.a[k] * (SPEC_BASE - SPEC_TOP);
+    sx.fillStyle = k === hoverPartial ? '#ffd88a' : GOLD;
+    roundTop(sx, x - 2.5, SPEC_BASE - h, 5, h);
+  });
+}
+function roundTop(g, x, y, w, h) {
+  g.beginPath();
+  g.moveTo(x, y + h); g.lineTo(x, y + 2); g.arcTo(x, y, x + 2, y, 2); g.arcTo(x + w, y, x + w, y + 2, 2); g.lineTo(x + w, y + h);
+  g.fill();
+}
+
+function drawCurve() {
+  const W = cv.width, H = cv.height, top = CT, bot = H - CB;
+  cx.clearRect(0, 0, W, H);
+  let hi = 0;
+  for (const v of curve) hi = Math.max(hi, v);
+  if (ghost) for (const v of ghost) hi = Math.max(hi, v);
+  const y = v => bot - (bot - top) * v / hi;
+  for (let c = 0; c <= CMAX; c += 100) {
+    const isOct = c % 1200 === 0;
+    cx.fillStyle = isOct ? '#232938' : GRID; cx.fillRect(Math.round(curveX(c)), top, 1, bot - top);
+  }
+  cx.font = '11px ui-monospace, monospace'; cx.textAlign = 'center'; cx.fillStyle = '#4d5363';
+  for (const c of [0, 500, 1000, 1500, 2000]) cx.fillText(c + '¢', Math.min(W - 24, Math.max(18, curveX(c))), top + 10);
+  // the tone's own octave
+  cx.strokeStyle = '#3a4152'; cx.setLineDash([3, 4]);
+  cx.beginPath(); cx.moveTo(curveX(period) + 0.5, top); cx.lineTo(curveX(period) + 0.5, bot); cx.stroke();
+  cx.setLineDash([]);
+  const line = (c, color, width) => {
+    cx.strokeStyle = color; cx.lineWidth = width; cx.beginPath();
+    for (let k = 0; k <= CMAX; k += 2) { const X = curveX(k), Y = y(c[k]); k ? cx.lineTo(X, Y) : cx.moveTo(X, Y); }
+    cx.stroke();
+  };
+  if (ghost) line(ghost, '#3d4456', 1);
+  line(curve, GOLD, 2);
+  cx.lineWidth = 1;
+  // dips and their keys
+  let lastLabel = -1e9;
+  valleys.forEach((v, k) => {
+    const X = curveX(v.c);
+    cx.fillStyle = GOLD; cx.strokeStyle = '#07090d'; cx.lineWidth = 2;
+    cx.beginPath(); cx.arc(X, y(curve[v.c]), 4, 0, 7); cx.fill(); cx.stroke(); cx.lineWidth = 1;
+    const isNumbered = k < KEYS.length;
+    cx.fillStyle = '#141821'; cx.strokeStyle = '#3a4152';
+    cx.beginPath(); cx.roundRect(X - 7, bot + 6, 14, 15, 3); cx.fill(); cx.stroke();
+    cx.fillStyle = isNumbered ? TEXT : MUTED; cx.fillText(isNumbered ? KEYS[k] : '·', X, bot + 17);
+    const isClear = X - lastLabel > 30;
+    if (isClear) { cx.fillStyle = MUTED; cx.fillText(ratioLabel(v.c) || v.c + '¢', X, bot + 36); lastLabel = X; }
+  });
+  if (hoverC !== null) {
+    const X = curveX(hoverC);
+    cx.fillStyle = 'rgba(217,220,228,0.35)'; cx.fillRect(Math.round(X), top, 1, bot - top);
+    cx.fillStyle = TEXT; cx.beginPath(); cx.arc(X, y(curve[hoverC]), 3, 0, 7); cx.fill();
+  }
+}
+
+// One row per change: a dot at each dip, brighter for deeper dips.
+let lastRow = 0, recordBreak = false, rowPending = false;
+function recordRow() {
+  const now = performance.now();
+  if (now - lastRow < 120) { if (!rowPending) { rowPending = true; setTimeout(() => { rowPending = false; recordRow(); }, 130); } return; }
+  lastRow = now;
+  const W = rec.width, H = rec.height;
+  rx.drawImage(rec, 0, 1);
+  rx.fillStyle = '#07090d'; rx.fillRect(0, 0, W, 1);
+  if (recordBreak) { rx.fillStyle = '#262b38'; rx.fillRect(0, 0, W, 1); rx.drawImage(rec, 0, 1); rx.fillStyle = '#07090d'; rx.fillRect(0, 0, W, 1); recordBreak = false; }
+  for (const v of valleys) {
+    const t = Math.min(1, 0.25 + v.prom * 3);
+    rx.fillStyle = `rgba(240,185,74,${t})`;
+    rx.fillRect(Math.round(curveX(v.c)) - 1, 0, 3, 1);
+  }
+  rx.fillStyle = 'rgba(217,220,228,0.5)'; rx.fillRect(Math.round(curveX(0)), 0, 1, 1);
+}
+
+const ML = 34, MB = 30, MT = 10, MR = 10;
+const mapImg = document.createElement('canvas');
+function drawMap() {
+  const W = map.width, H = map.height, m = mapRes, pw = W - ML - MR, ph = H - MT - MB;
+  mapImg.width = m; mapImg.height = m;
+  const g = mapImg.getContext('2d'), img = g.createImageData(m, m);
+  // Shade by rank, so the very rough corner by the diagonal can't wash out the rest.
+  const vals = Float64Array.from(Array.from(mapD).filter(v => v === v)).sort();
+  const rank = v => { let a = 0, b = vals.length; while (a < b) { const h = (a + b) >> 1; if (vals[h] < v) a = h + 1; else b = h; } return a / vals.length; };
+  for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
+    const v = mapD[j * m + i], o = ((m - 1 - j) * m + i) * 4;
+    const isChord = v === v;
+    const t = isChord ? (1 - rank(v)) ** 3 : 0;
+    img.data[o] = isChord ? 12 + 232 * t : 7;
+    img.data[o + 1] = isChord ? 12 + 183 * t : 9;
+    img.data[o + 2] = isChord ? 18 + 92 * t : 13;
+    img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  mx.clearRect(0, 0, W, H);
+  mx.imageSmoothingEnabled = true;
+  mx.drawImage(mapImg, ML, MT, pw, ph);
+  const px = c => ML + pw * c / mapSpan, py = c => MT + ph * (1 - c / mapSpan);
+  mx.font = '11px ui-monospace, monospace'; mx.fillStyle = '#4d5363'; mx.textAlign = 'center';
+  for (let c = 0; c <= mapSpan; c += 300) { mx.fillText(c, px(c), H - MB + 14); }
+  mx.textAlign = 'right';
+  for (let c = 0; c <= mapSpan; c += 300) { mx.fillText(c, ML - 4, py(c) + 4); }
+  mx.textAlign = 'center'; mx.fillText('lower note, ¢ above the root', ML + pw / 2, H - 4);
+  mx.save(); mx.translate(10, MT + ph / 2); mx.rotate(-Math.PI / 2); mx.fillText('upper note', 0, 0); mx.restore();
+  mx.strokeStyle = '#07090d'; mx.lineWidth = 2;
+  mapMins.forEach((p, k) => {
+    const isTop = k < TOP;
+    mx.strokeStyle = k === 0 ? '#ffffff' : 'rgba(255,255,255,0.6)';
+    mx.fillStyle = 'rgba(255,255,255,0.45)';
+    mx.lineWidth = 1.5; mx.beginPath(); mx.arc(px(p.c1), py(p.c2), isTop ? 6 : 1.5, 0, 7);
+    if (isTop) mx.stroke(); else mx.fill();
+  });
+  if (hoverMap) {
+    mx.strokeStyle = 'rgba(217,220,228,0.8)'; mx.lineWidth = 1;
+    mx.beginPath(); mx.arc(px(hoverMap.c1), py(hoverMap.c2), 4, 0, 7); mx.stroke();
+  }
+}
+
+function chordName(c1, c2) {
+  const lab = chordLabel(c1, c2);
+  return lab ? `${lab}` : `0·${Math.round(c1)}·${Math.round(c2)}¢`;
+}
+function drawSide() {
+  const lab = ratioLabel(period);
+  document.getElementById('octave').innerHTML = `Its own octave, the first deep dip past 1000¢: <b>${period}¢${lab ? ' (' + lab + ')' : ''}</b>. The map spans 0 to that.`;
+  const sm = document.getElementById('smooth');
+  sm.innerHTML = 'Smoothest chords, ringed on the map: ' + mapMins.slice(0, TOP).map((p, k) =>
+    `<span class="chord" data-k="${k}">${chordName(p.c1, p.c2)}</span>`).join(' · ');
+  for (const el of sm.querySelectorAll('.chord')) el.onclick = () => { const p = mapMins[+el.dataset.k]; playChord([0, p.c1, p.c2]); };
+  document.getElementById('valleyList').innerHTML = 'Dips: ' + valleys.map(v => {
+    const r = ratioLabel(v.c);
+    return `${v.c}¢${r ? ' ' + r : ''}`;
+  }).join(' · ');
+  document.getElementById('reg').textContent = REGS[reg][0];
+}
+
+let mapTimer = 0;
+function refresh(full) {
+  prepare();
+  computeCurve();
+  drawSpec(); drawCurve(); recordRow();
+  if (full) { computeMap(); drawMap(); drawSide(); return; }
+  computeMap(60); drawMap();
+  clearTimeout(mapTimer);
+  mapTimer = setTimeout(() => { computeMap(); drawMap(); drawSide(); }, 250);
+}
+
+// ---------------------------------------------------------------- sound
+let ac = null, out = null;
+function audio() {
+  if (!ac) {
+    ac = new AudioContext();
+    const comp = ac.createDynamicsCompressor();
+    out = ac.createGain(); out.gain.value = 0.8;
+    out.connect(comp); comp.connect(ac.destination);
+  }
+  if (ac.state === 'suspended') ac.resume();
+  return ac;
+}
+// Adds one note of tone t at frequency f to buf, starting at sample n0. Each partial is a
+// rotating phasor; a struck tone's high partials die faster.
+function voice(buf, sr, n0, f, dur, t, gain) {
+  const n = Math.min(buf.length - n0, Math.floor(dur * sr));
+  const base = f * Math.min(...t.r);
+  const isStruck = t.kind === 'struck';
+  for (let k = 0; k < t.r.length; k++) {
+    const fk = f * t.r[k];
+    const isAudible = fk > 20 && fk < sr * 0.45;
+    if (!isAudible) continue;
+    const w = 2 * Math.PI * fk / sr, c = Math.cos(w), s = Math.sin(w);
+    const ph = Math.random() * 6.283;
+    let x = Math.cos(ph), y = Math.sin(ph);
+    const tau = isStruck ? t.ring * Math.sqrt(base / fk) : 4;
+    const decay = Math.exp(-1 / (tau * sr));
+    const att = Math.floor((isStruck ? 0.003 : 0.03) * sr), rel = Math.floor(0.2 * sr);
+    let e = gain * t.a[k];
+    for (let i = 0; i < n; i++) {
+      let env = e;
+      if (i < att) env *= i / att;
+      const isTail = !isStruck && i > n - rel;
+      if (isTail) env *= (n - i) / rel;
+      buf[n0 + i] += env * y;
+      const nx = x * c - y * s; y = x * s + y * c; x = nx;
+      e *= decay;
+    }
+  }
+}
+// notes: [[frequency, start seconds, duration seconds]]
+function render(t, notes, sr) {
+  const end = Math.max(...notes.map(([, at, d]) => at + d));
+  const buf = new Float32Array(Math.ceil(end * sr) + 1);
+  for (const [f, at, d] of notes) voice(buf, sr, Math.floor(at * sr), f, d, t, 1);
+  let peak = 0;
+  for (const v of buf) peak = Math.max(peak, Math.abs(v));
+  if (peak > 0) for (let i = 0; i < buf.length; i++) buf[i] *= 0.45 / peak;
+  return buf;
+}
+function play(t, notes, gain = 1, when = 0) {
+  const ctx = audio(), data = render(t, notes, ctx.sampleRate);
+  const b = ctx.createBuffer(1, data.length, ctx.sampleRate);
+  b.copyToChannel(data, 0);
+  const src = ctx.createBufferSource(), g = ctx.createGain();
+  g.gain.value = gain; src.buffer = b; src.connect(g); g.connect(out);
+  src.start(when || ctx.currentTime + 0.02);
+}
+const noteLen = t => t.kind === 'struck' ? Math.min(6, t.ring * 2.5) : 1.6;
+function playChord(cs) {
+  const f = f0();
+  play(tone, cs.map(c => [f * ratio(c), 0, noteLen(tone)]));
+}
+function playScale() {
+  const f = f0(), steps = [0, ...valleys.map(v => v.c).filter(c => c < period), period];
+  const gap = 0.32, d = tone.kind === 'struck' ? noteLen(tone) : 0.5;
+  const notes = steps.map((c, k) => [f * ratio(c), k * gap, d]);
+  notes.push([f, steps.length * gap, noteLen(tone)], [f * ratio(period), steps.length * gap, noteLen(tone)]);
+  play(tone, notes);
+}
+// I vi IV V I, in semitones from the root; each semitone is a twelfth of the octave P.
+const HYMN = [[-12, 4, 7, 12], [-15, 4, 9, 12], [-7, 5, 9, 12], [-5, 2, 7, 11], [-12, 4, 7, 12]];
+function playHymn(t, P) {
+  const f = f0(), d = t.kind === 'struck' ? noteLen(t) : 1.15;
+  const notes = [];
+  HYMN.forEach((ch, k) => { for (const s of ch) notes.push([f * P ** (s / 12), k * 1.1, k === HYMN.length - 1 ? d + 0.8 : d]); });
+  play(t, notes);
+}
+const TESTS = [['string', 2], ['stretched', 2.1], ['string', 2.1], ['stretched', 2]];
+
+// ---------------------------------------------------------------- dream
+// Each overtone's log pitch is a damped spring tied to where it started and kicked by noise, so it
+// drifts smoothly by a few percent over tens of seconds (position sd = DRIFT / √(2·DAMP·SPRING)).
+// A tune walks the dips of whatever scale the tone has that moment.
+const SPRING = 0.05, DAMP = 0.5, DRIFT = 0.0067;
+let dream = null;
+function gauss() { return Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(6.283 * Math.random()); }
+function startDream() {
+  const ctx = audio();
+  const anchor = tone.r.reduce((b, r, k) => Math.abs(Math.log(r)) < Math.abs(Math.log(tone.r[b])) ? k : b, 0);
+  dream = { home: tone.r.map(Math.log), vel: tone.r.map(() => 0), homeA: tone.a.slice(), anchor, next: ctx.currentTime + 0.1, beat: 0, note: 0, timer: 0 };
+  dream.timer = setInterval(dreamTick, 100);
+  document.getElementById('dream').setAttribute('aria-pressed', 'true');
+}
+function stopDream() {
+  if (!dream) return;
+  clearInterval(dream.timer); dream = null;
+  document.getElementById('dream').setAttribute('aria-pressed', 'false');
+}
+function dreamTick() {
+  const dt = 0.1;
+  tone.r = tone.r.map((r, k) => {
+    if (k === dream.anchor) return r;
+    const l = Math.log(r);
+    dream.vel[k] += (SPRING * (dream.home[k] - l) - DAMP * dream.vel[k]) * dt + DRIFT * Math.sqrt(dt) * gauss();
+    return Math.exp(l + dream.vel[k] * dt);
+  });
+  tone.a = tone.a.map((a, k) => Math.min(1, Math.max(0.03, a + 0.05 * (dream.homeA[k] - a) * dt + 0.03 * Math.sqrt(dt) * gauss())));
+  if (!tone.name.endsWith('dreaming')) tone.name = presetName + ', dreaming';
+  prepare(); computeCurve(); drawSpec(); drawCurve(); recordRow();
+  if (++dream.beat % 10 === 0) { computeMap(80); drawMap(); drawSide(); }
+  const ctx = audio(), BEAT = 0.36;
+  while (dream.next < ctx.currentTime + 0.25) {
+    const pitches = [0, ...valleys.map(v => v.c)];
+    let k = nearestIndex(pitches, dream.note);
+    const step = [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)];
+    k = Math.max(0, Math.min(pitches.length - 1, k + step));
+    const isHigh = pitches[k] > 1600;
+    if (isHigh) k = Math.max(0, k - 3);
+    dream.note = pitches[k];
+    const f = f0(), len = Math.random() < 0.25 ? 2 : 1, d = tone.kind === 'struck' ? noteLen(tone) : BEAT * len + 0.25;
+    play(tone, [[f * ratio(dream.note), 0, d]], 0.7, dream.next);
+    const isBar = dream.note === 0 || Math.random() < 0.12;
+    if (isBar && mapMins.length) {
+      const p = mapMins[0];
+      play(tone, [[f / 2, 0, 2], [f / 2 * ratio(p.c1), 0, 2], [f / 2 * ratio(p.c2), 0, 2]], 0.35, dream.next);
+    }
+    dream.next += BEAT * len;
+  }
+}
+function nearestIndex(list, c) {
+  let b = 0;
+  list.forEach((x, k) => { if (Math.abs(x - c) < Math.abs(list[b] - c)) b = k; });
+  return b;
+}
+
+// ---------------------------------------------------------------- input
+function canvasPos(el, e) {
+  const r = el.getBoundingClientRect();
+  return [(e.clientX - r.left) * el.width / r.width, (e.clientY - r.top) * el.height / r.height];
+}
+function edited() {
+  stopDream();
+  if (tone.name !== 'yours') {
+    tone.name = 'yours';
+    document.getElementById('caption').textContent = `Your own tone, started from ${presetName}. The faint line is the curve before you changed it.`;
+    ghost = curve.slice();
+    for (const b of document.querySelectorAll('[data-tone]')) b.setAttribute('aria-pressed', 'false');
+  }
+}
+function pickPartial(x) {
+  let best = -1, bd = 9;
+  tone.r.forEach((r, k) => { const d = Math.abs(specX(r) - x); if (d < bd) { bd = d; best = k; } });
+  return best;
+}
+let drag = -1;
+spec.addEventListener('pointerdown', e => {
+  const [x] = canvasPos(spec, e);
+  drag = pickPartial(x);
+  if (drag >= 0) { spec.setPointerCapture(e.pointerId); edited(); }
+});
+spec.addEventListener('pointermove', e => {
+  const [x, y] = canvasPos(spec, e);
+  if (drag >= 0) {
+    tone.r[drag] = Math.min(SPEC_HI, Math.max(SPEC_LO, specR(x)));
+    tone.a[drag] = Math.min(1, Math.max(0.02, (SPEC_BASE - y) / (SPEC_BASE - SPEC_TOP)));
+    refresh(false);
+  } else {
+    hoverPartial = pickPartial(x); drawSpec();
+  }
+  const k = drag >= 0 ? drag : hoverPartial;
+  document.getElementById('specHover').textContent = k >= 0
+    ? `overtone at ${tone.r[k].toFixed(3)} × the note, loudness ${tone.a[k].toFixed(2)}`
+    : `${specR(x).toFixed(2)} × the note · double-click to add an overtone here`;
+});
+spec.addEventListener('pointerup', () => { if (drag >= 0) { drag = -1; refresh(true); } });
+spec.addEventListener('dblclick', e => {
+  const [x, y] = canvasPos(spec, e), k = pickPartial(x);
+  edited();
+  const canRemove = k >= 0 && tone.r.length > 1;
+  if (canRemove) { tone.r.splice(k, 1); tone.a.splice(k, 1); }
+  if (k < 0) { tone.r.push(specR(x)); tone.a.push(Math.min(1, Math.max(0.05, (SPEC_BASE - y) / (SPEC_BASE - SPEC_TOP)))); }
+  refresh(true);
+});
+spec.addEventListener('contextmenu', e => e.preventDefault());
+
+function curveAt(e) {
+  const [x] = canvasPos(cv, e);
+  let c = Math.round((x - CL) / (cv.width - CL - CR) * CMAX);
+  c = Math.max(0, Math.min(CMAX, c));
+  const near = valleys.find(v => Math.abs(curveX(v.c) - curveX(c)) < 8);
+  return near ? near.c : c;
+}
+cv.addEventListener('pointermove', e => {
+  hoverC = curveAt(e); drawCurve();
+  const lab = ratioLabel(hoverC), isDip = valleys.some(v => v.c === hoverC);
+  document.getElementById('curveHover').innerHTML = `<b>${hoverC}¢</b>${lab ? ' ≈ ' + lab : ''} · roughness ${curve[hoverC].toFixed(2)}${isDip ? ' · a dip' : ''}`;
+});
+cv.addEventListener('pointerleave', () => { hoverC = null; drawCurve(); });
+cv.addEventListener('pointerdown', e => { const c = curveAt(e); playChord([0, c]); });
+
+function mapAt(e) {
+  const [x, y] = canvasPos(map, e), pw = map.width - ML - MR, ph = map.height - MT - MB;
+  const c1 = (x - ML) / pw * mapSpan, c2 = (1 - (y - MT) / ph) * mapSpan;
+  const isChord = c1 >= 0 && c2 <= mapSpan && c2 > c1;
+  if (!isChord) return null;
+  const near = mapMins.find(p => Math.hypot(p.c1 - c1, p.c2 - c2) < mapSpan * 0.02);
+  return near ? { c1: near.c1, c2: near.c2 } : { c1, c2 };
+}
+map.addEventListener('pointermove', e => {
+  hoverMap = mapAt(e); drawMap();
+  document.getElementById('mapHover').innerHTML = hoverMap
+    ? `root, <b>${Math.round(hoverMap.c1)}¢</b> and <b>${Math.round(hoverMap.c2)}¢</b>${chordLabel(hoverMap.c1, hoverMap.c2) ? ' ≈ ' + chordLabel(hoverMap.c1, hoverMap.c2) : ''}`
+    : '&nbsp;';
+});
+map.addEventListener('pointerleave', () => { hoverMap = null; drawMap(); });
+map.addEventListener('pointerdown', e => { const p = mapAt(e); if (p) playChord([0, p.c1, p.c2]); });
+
+const toneBar = document.getElementById('tones');
+for (const name of Object.keys(PRESETS)) {
+  const b = document.createElement('button');
+  b.dataset.tone = name; b.textContent = name === 'tet' ? 'n steps' : name;
+  b.onclick = () => setPreset(name);
+  toneBar.appendChild(b);
+}
+const stepTet = d => { tet = Math.max(4, Math.min(31, tet + d)); setPreset('tet'); };
+for (const [label, d] of [['−', -1], ['+', 1]]) {
+  const b = document.createElement('button'); b.textContent = label; b.onclick = () => stepTet(d);
+  b.title = d < 0 ? 'fewer steps (-)' : 'more steps (=)';
+  toneBar.appendChild(b);
+}
+const shift = d => { reg = Math.max(0, Math.min(REGS.length - 1, reg + d)); recordBreak = true; refresh(true); };
+document.getElementById('down').onclick = () => shift(-1);
+document.getElementById('up').onclick = () => shift(1);
+document.getElementById('scale').onclick = playScale;
+document.getElementById('chords').onclick = () => playHymn(tone, ratio(period));
+document.getElementById('dream').onclick = () => dream ? stopDream() : startDream();
+for (const b of document.querySelectorAll('[data-test]')) b.onclick = () => {
+  const [name, P] = TESTS[+b.dataset.test], p = PRESETS[name];
+  playHymn({ r: p.r, a: p.a, kind: p.kind }, P);
+};
+addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const n = KEYS.indexOf(e.key);
+  const isKey = n >= 0 && valleys[n];
+  if (isKey) playChord([0, valleys[n].c]);
+  else if (e.key === ' ') { e.preventDefault(); playScale(); }
+  else if (e.key === 'p') playHymn(tone, ratio(period));
+  else if (e.key === 'd') dream ? stopDream() : startDream();
+  else if (e.key === ',') shift(-1);
+  else if (e.key === '.') shift(1);
+  else if (e.key === '-') stepTet(-1);
+  else if (e.key === '=') stepTet(1);
+});
+
+setPreset('string');
+</script>
+</body>
+</html>
