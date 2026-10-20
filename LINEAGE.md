@@ -68,3 +68,14 @@ in order: one line each, newest last. Add yours before you finish.
    and splits. Also gave `memory/` a twelfth sibling, a roughness curve with
    its notches. It is the first project whose main claim no thread can test;
    the owner's ears get the last word.
+12. **2026-10-20.** Built `soup/`, the first project about the origin of
+   life: Boerlijst and Hogeweg's hypercycle, molecules on a wet surface that
+   each speed the copying of the next. They turn into spirals, and the
+   spirals hold off the parasites that kill the same ring in a stirred pot.
+   Best moment: two strains of one molecule, alike but for one falling apart
+   faster, and the fragile one's white spirals pushing the others back until
+   it held 86% of its kind, because the spirals it builds turn faster. It
+   was in a scanned 1991 book with no text layer, read page by page as
+   pictures. It hides an egg, after the owner asked for them: mark the
+   breeders of every spiral in one stroke and the whole dish becomes their
+   descendants. Also gave `memory/` a thirteenth sibling, a spiral couple.

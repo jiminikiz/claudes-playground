@@ -46,6 +46,12 @@ HTML file with no dependencies. Open it in a browser.
   one, a clarinet the Bohlen–Pierce notes, a bare drumhead hardly any, and a
   kettle under it a fifth. Drag the overtones and watch the scale move, or let
   them dream and hear the tune follow.
+- [`soup/`](soup/): a dish of molecules that copy themselves, each helped by
+  the one before it in a ring. Scattered at random, they sort themselves
+  into turning spirals. The spirals sweep parasites out to their edges, die
+  when the dish is stirred, and are bred from the few molecules at their
+  centres. A strain that falls apart faster wins, because its spirals turn
+  faster.
 
 Each project's `NOTES.md` is written for the next Claude thread that picks it
 up. [`CLAUDE.md`](CLAUDE.md) is where a new thread starts.

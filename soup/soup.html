@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spiral Soup</title>
+<style>
+  :root {
+    --bg: #0b0a09;
+    --panel: #171513;
+    --line: #2b2723;
+    --text: #ebe6dd;
+    --muted: #8f877c;
+    --focus: #e9b65c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 720px); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #000; }
+  #dish { image-rendering: pixelated; cursor: crosshair; touch-action: none; width: min(100%, 68vh); align-self: center; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #4a443c; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .label { color: var(--muted); font-size: 13px; margin-right: 2px; }
+  .info { color: var(--muted); font-size: 13px; }
+  .info b { color: var(--text); font-weight: 500; }
+  #caption { color: var(--text); font-size: 14px; }
+  #read { color: var(--focus); min-height: 2.9em; }
+  #egg { color: var(--text); border-left: 2px solid var(--focus); padding: 2px 0 2px 10px; }
+  .knob { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .knob[hidden] { display: none; }
+  .knob input { flex: 1; min-width: 160px; accent-color: var(--focus); }
+  .knob span { color: var(--muted); font-size: 13px; }
+  #knobVal { color: var(--text); min-width: 7em; }
+  footer { color: #5a544b; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar" id="scenes"></div>
+  <div id="caption"></div>
+  <canvas id="dish" width="300" height="300" aria-label="the dish"></canvas>
+  <div class="info" id="read"></div>
+  <div id="egg" hidden></div>
+  <canvas id="strip" width="720" height="96" aria-label="how many of each kind, over time"></canvas>
+  <div class="info">The strip is the last few thousand steps: how much of the dish each kind fills, stacked, with parasites and the white strain in white, and empty water at the top.</div>
+  <div class="knob" id="knobRow">
+    <span id="knobName"></span>
+    <input id="knob" type="range" aria-label="scene knob">
+    <span id="knobVal"></span>
+  </div>
+  <div class="bar" id="tools"><span class="label">pointer:</span></div>
+  <div class="bar">
+    <button id="pause">pause <kbd>space</kbd></button>
+    <button id="restart">start again <kbd>r</kbd></button>
+    <button id="fast">fast <kbd>f</kbd></button>
+    <button id="view">colour by kind <kbd>v</kbd></button>
+  </div>
+  <div class="info">Drag on the dish to use the pointer. <b>Parasites</b> drops a clump of them. <b>Stir</b> mixes the molecules under it, as a finger would. <b>Dye</b> marks the molecules under it with a new colour that their copies inherit, and switches to the dye view. Dye a spiral's centre and the colour spreads through the whole spiral; dye anywhere else and it is washed out to the rim within about 50 steps. <b>Wipe</b> clears them away: wipe out a spiral and see what happens to the hole.</div>
+  <div class="info">Every scene is the same rule, on a 300 × 300 dish that wraps round at the edges. A cell holds one molecule or is empty. Each step a molecule falls apart with chance 0.2, and an empty cell may be filled by a copy of one of its four neighbours. Each neighbour stakes a claim of 1, plus 100 if a molecule of the kind before it in the cycle sits beside the line along which it would copy. Against those claims, the cell has a claim of 11 to stay empty. Then the water moves: twice a step, every 2 × 2 block of cells turns a quarter turn one way or the other. Nothing in the rule knows what a spiral is.</div>
+  <div class="info">Why it matters: before cells, life may have been molecules that copy themselves, like RNA. Eigen and Schuster (1979) showed a lone copier makes too many mistakes to hold much information, and proposed a ring of them, each speeding the copying of the next: a <b>hypercycle</b>. Maynard Smith (1979) objected that a parasite taking help without giving any would kill it. Boerlijst and Hogeweg (1991) answered by putting the ring on a surface instead of in a stirred pot.</div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun. The rule and its numbers are Boerlijst and Hogeweg's cellular automaton (Physica D 48, 1991); the two strains follow their chapter in Artificial Life II (1991).</footer>
+</main>
+<script>
+// ---------------------------------------------------------------- the soup
+// Boerlijst & Hogeweg (1991), table 1. Codes: 0 empty, 1..n members of the cycle,
+// MUT a variant of member 1, PAR a parasite.
+const MUT = 14, PAR = 15;
+
+function Soup(W, H, seed) {
+  const N = W * H;
+  const S = {
+    W, H, N, t: 0,
+    a: new Uint8Array(N), b: new Uint8Array(N),
+    la: new Uint16Array(N), lb: new Uint16Array(N), // dye, carried by copies
+    decay: new Float32Array(16), self: new Float32Array(16), cat: new Float32Array(256),
+    emptyClaim: 11, stir: 2, n: 9, mo: 0,
+  };
+  let s = (seed >>> 0) || 1;
+  S.rngState = () => s;
+  S.setRngState = v => { s = v; };
+  const rnd = S.rnd = () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
+
+  // cat[x*16+y] = catalytic support x receives from a neighbour y
+  S.setCycle = (n, o = {}) => {
+    S.n = n;
+    S.decay.fill(o.decay ?? 0.2); S.self.fill(o.self ?? 1); S.cat.fill(0);
+    S.decay[0] = 0; S.self[0] = 0;
+    const k = o.k ?? 100;
+    for (let i = 1; i <= n; i++) S.cat[i * 16 + (i === 1 ? n : i - 1)] = k;
+    // parasite: takes from member 2, gives nothing
+    S.decay[PAR] = o.pDecay ?? 0.2; S.self[PAR] = o.pSelf ?? 1;
+    S.cat[PAR * 16 + 2] = o.pGet ?? 200;
+    // mutant: takes from mFrom, gives to mTo (default: a copy of member 1)
+    const mFrom = o.mFrom ?? n, mTo = o.mTo ?? 2;
+    S.decay[MUT] = o.mDecay ?? 0.2; S.self[MUT] = o.mSelf ?? 1;
+    S.cat[MUT * 16 + mFrom] = o.mGet ?? k;
+    S.cat[mTo * 16 + MUT] = o.mGive ?? k;
+  };
+
+  S.randomize = (fill = 0.5) => {
+    for (let i = 0; i < N; i++) { S.a[i] = rnd() < fill ? 0 : 1 + Math.floor(rnd() * S.n); S.la[i] = 0; }
+    S.t = 0;
+  };
+
+  // One time step: decay or replication (synchronous), then stirring. The generator is
+  // inlined here and in margolus(), drawing in the same order as rnd() would.
+  S.step = () => {
+    const a = S.a, b = S.b, la = S.la, lb = S.lb;
+    const decay = S.decay, self = S.self, cat = S.cat, ec = S.emptyClaim;
+    let z = s;
+    for (let y = 0; y < H; y++) {
+      const ym = (y === 0 ? H - 1 : y - 1) * W, yp = (y === H - 1 ? 0 : y + 1) * W, y0 = y * W;
+      for (let x = 0; x < W; x++) {
+        const i = y0 + x, v = a[i];
+        z ^= z << 13; z >>>= 0; z ^= z >>> 17; z ^= z << 5; z >>>= 0;
+        const u = z / 4294967296;
+        if (v !== 0) {
+          if (u < decay[v]) b[i] = 0; else { b[i] = v; lb[i] = la[i]; }
+          continue;
+        }
+        const xm = x === 0 ? W - 1 : x - 1, xp = x === W - 1 ? 0 : x + 1;
+        const n = ym + x, so = yp + x, w = y0 + xm, e = y0 + xp;
+        const Nn = a[n], Sn = a[so], Wn = a[w], En = a[e];
+        const NE = a[ym + xp], NW = a[ym + xm], SE = a[yp + xp], SW = a[yp + xm];
+        // a neighbour's claim: self-copying plus help from the four cells flanking its copy
+        let cN = 0, cS = 0, cW = 0, cE = 0;
+        if (Nn !== 0) { const r = Nn << 4; cN = self[Nn] + cat[r + NE] + cat[r + NW] + cat[r + En] + cat[r + Wn]; }
+        if (Sn !== 0) { const r = Sn << 4; cS = self[Sn] + cat[r + SE] + cat[r + SW] + cat[r + En] + cat[r + Wn]; }
+        if (Wn !== 0) { const r = Wn << 4; cW = self[Wn] + cat[r + NW] + cat[r + SW] + cat[r + Nn] + cat[r + Sn]; }
+        if (En !== 0) { const r = En << 4; cE = self[En] + cat[r + NE] + cat[r + SE] + cat[r + Nn] + cat[r + Sn]; }
+        let r = u * (ec + cN + cS + cW + cE) - ec;
+        if (r < 0) { b[i] = 0; continue; }
+        let p;
+        if ((r -= cN) < 0) p = n; else if ((r -= cS) < 0) p = so; else if ((r -= cW) < 0) p = w; else p = e;
+        b[i] = a[p]; lb[i] = la[p];
+      }
+    }
+    s = z;
+    S.a = b; S.b = a; S.la = lb; S.lb = la;
+    if (S.stir < 0) S.shuffle(); else for (let d = 0; d < S.stir; d++) S.margolus();
+    S.t++;
+  };
+
+  // Toffoli–Margolus diffusion: rotate each 2x2 block a quarter turn either way
+  S.margolus = () => {
+    const a = S.a, l = S.la, o = S.mo; S.mo ^= 1;
+    let z = s;
+    for (let by = 0; by < H; by += 2) {
+      const yA = by + o, yB = yA + 1;
+      const y0 = (yA >= H ? yA - H : yA) * W, y1 = (yB >= H ? yB - H : yB) * W;
+      for (let bx = 0; bx < W; bx += 2) {
+        const xA = bx + o, xB = xA + 1;
+        const x0 = xA >= W ? xA - W : xA, x1 = xB >= W ? xB - W : xB;
+        const p = y0 + x0, q = y0 + x1, r = y1 + x0, t = y1 + x1;
+        const A = a[p], B = a[q], C = a[r], D = a[t];
+        const lA = l[p], lB = l[q], lC = l[r], lD = l[t];
+        z ^= z << 13; z >>>= 0; z ^= z >>> 17; z ^= z << 5; z >>>= 0;
+        const isClockwise = z < 2147483648;
+        if (isClockwise) { a[p] = C; a[q] = A; a[r] = D; a[t] = B; l[p] = lC; l[q] = lA; l[r] = lD; l[t] = lB; }
+        else { a[p] = B; a[q] = D; a[r] = A; a[t] = C; l[p] = lB; l[q] = lD; l[r] = lA; l[t] = lC; }
+      }
+    }
+    s = z;
+  };
+
+  // a perfectly stirred pot: every molecule anywhere, every step
+  S.shuffle = () => {
+    const a = S.a, l = S.la;
+    for (let i = N - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+      const u = l[i]; l[i] = l[j]; l[j] = u;
+    }
+  };
+
+  S.counts = () => { const c = new Uint32Array(16); for (let i = 0; i < N; i++) c[S.a[i]]++; return c; };
+
+  // Spiral cores: winding number of the smoothed phase round each 2x2 plaquette.
+  // Returns [{x, y, sign}]. MUT counts as member 1.
+  S.cores = (R = 3) => {
+    const n = S.n, a = S.a, ux = new Float32Array(N), uy = new Float32Array(N);
+    const cs = [], sn = [];
+    for (let i = 0; i <= n; i++) { cs.push(Math.cos(2 * Math.PI * (i - 1) / n)); sn.push(Math.sin(2 * Math.PI * (i - 1) / n)); }
+    for (let i = 0; i < N; i++) { let v = a[i]; if (v === MUT) v = 1; if (v >= 1 && v <= n) { ux[i] = cs[v]; uy[i] = sn[v]; } }
+    const tx = new Float32Array(N), ty = new Float32Array(N);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let sx = 0, sy = 0;
+      for (let d = -R; d <= R; d++) { const j = y * W + (x + d + W) % W; sx += ux[j]; sy += uy[j]; }
+      tx[y * W + x] = sx; ty[y * W + x] = sy;
+    }
+    const ph = new Float32Array(N);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let sx = 0, sy = 0;
+      for (let d = -R; d <= R; d++) { const j = ((y + d + H) % H) * W + x; sx += tx[j]; sy += ty[j]; }
+      ph[y * W + x] = Math.atan2(sy, sx);
+    }
+    const TAU = 2 * Math.PI, wrap = d => d - TAU * Math.round(d / TAU), out = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const x1 = (x + 1) % W, y1 = ((y + 1) % H) * W, y0 = y * W;
+      const p = ph[y0 + x], q = ph[y0 + x1], r = ph[y1 + x1], t = ph[y1 + x];
+      const w = wrap(q - p) + wrap(r - q) + wrap(t - r) + wrap(p - t);
+      if (w > Math.PI) out.push({ x, y, sign: 1 }); else if (w < -Math.PI) out.push({ x, y, sign: -1 });
+    }
+    return out;
+  };
+
+  return S;
+}
+
+// ---------------------------------------------------------------- measuring
+const SIZE = 300;
+const S = Soup(SIZE, SIZE, 1);
+
+// Rotation period: unwrap the smoothed phase at fixed points over a window of steps.
+const tracker = {
+  WIN: 240, R: 3, pts: [], prev: null, tot: null, k: 0, period: 0,
+  reset() {
+    this.pts = [];
+    for (let j = 0; j < 240; j++) this.pts.push([Math.floor(Math.random() * SIZE), Math.floor(Math.random() * SIZE)]);
+    this.prev = null; this.tot = new Float64Array(240); this.k = 0; this.period = 0;
+  },
+  phases() {
+    const n = S.n, a = S.a, R = this.R, TAU = 2 * Math.PI;
+    return this.pts.map(([x, y]) => {
+      let sx = 0, sy = 0;
+      for (let dy = -R; dy <= R; dy++) {
+        const row = ((y + dy + SIZE) % SIZE) * SIZE;
+        for (let dx = -R; dx <= R; dx++) {
+          let v = a[row + (x + dx + SIZE) % SIZE];
+          if (v === MUT) v = 1;
+          if (v >= 1 && v <= n) { sx += COS[n][v]; sy += SIN[n][v]; }
+        }
+      }
+      return Math.atan2(sy, sx);
+    });
+  },
+  step() {
+    const p = this.phases(), TAU = 2 * Math.PI;
+    if (this.prev) for (let j = 0; j < p.length; j++) { const d = p[j] - this.prev[j]; this.tot[j] += d - TAU * Math.round(d / TAU); }
+    this.prev = p;
+    if (++this.k < this.WIN) return;
+    const per = [...this.tot].map(v => Math.abs(TAU * this.WIN / v)).sort((u, v) => u - v);
+    this.period = per[per.length >> 1];
+    this.tot.fill(0); this.k = 0;
+  },
+};
+const COS = [], SIN = [];
+for (let n = 0; n <= 13; n++) {
+  COS.push([]); SIN.push([]);
+  for (let i = 0; i <= n; i++) { COS[n].push(Math.cos(2 * Math.PI * (i - 1) / n)); SIN[n].push(Math.sin(2 * Math.PI * (i - 1) / n)); }
+}
+
+// ---------------------------------------------------------------- colour
+function oklch(L, C, hDeg) {
+  const h = hDeg * Math.PI / 180, a = C * Math.cos(h), b = C * Math.sin(h);
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  const lin = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+  return lin.map(x => { x = Math.max(0, Math.min(1, x)); return Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055)); });
+}
+const pack = ([r, g, b]) => (255 << 24) | (b << 16) | (g << 8) | r;
+const dim = ([r, g, b], f) => [r * f, g * f, b * f].map(Math.round);
+const EMPTY_RGB = [14, 12, 10], PAR_RGB = [246, 242, 234], MUT_RGB = [255, 255, 255];
+const DYES = [[0.66, 0.21, 27], [0.64, 0.18, 255], [0.86, 0.17, 98], [0.74, 0.19, 145], [0.68, 0.22, 330], [0.82, 0.13, 200], [0.76, 0.17, 58]].map(c => oklch(...c));
+let kindRGB = [];
+const LUT = { kinds: new Uint32Array(16), strains: new Uint32Array(16), dimKinds: new Uint32Array(16), dyes: DYES.map(pack) };
+
+function buildPalette(n) {
+  kindRGB = [EMPTY_RGB];
+  for (let i = 1; i <= 13; i++) kindRGB.push(oklch(0.72, 0.15, 25 + (i - 1) * 360 / n));
+  kindRGB[MUT] = MUT_RGB; kindRGB[PAR] = PAR_RGB;
+  for (let c = 0; c < 16; c++) {
+    LUT.kinds[c] = pack(kindRGB[c]);
+    LUT.dimKinds[c] = c ? pack(dim(kindRGB[c], 0.38)) : pack(EMPTY_RGB);
+    LUT.strains[c] = c ? pack(dim(kindRGB[c], 0.3)) : pack(EMPTY_RGB);
+  }
+  LUT.strains[1] = pack(kindRGB[1]); LUT.strains[MUT] = pack(MUT_RGB); LUT.strains[PAR] = pack([0, 0, 0]);
+}
+
+// ---------------------------------------------------------------- drawing
+const dish = document.getElementById('dish'), dctx = dish.getContext('2d');
+const img = dctx.createImageData(SIZE, SIZE), px = new Uint32Array(img.data.buffer);
+let view = 'kinds';
+const VIEW_NAMES = { kinds: 'colour by kind', dye: 'colour by dye', strains: 'colour by strain' };
+
+// Each cell is drawn as the mean colour of the molecules in its 3x3 block, with a quarter
+// of its own colour mixed back in so the grain shows. Like the paper's plates, a parasite
+// anywhere in the block marks the cell.
+const cell = new Uint32Array(SIZE * SIZE);
+const hR = new Uint16Array(SIZE * SIZE), hG = new Uint16Array(SIZE * SIZE), hB = new Uint16Array(SIZE * SIZE);
+const hN = new Uint8Array(SIZE * SIZE), hP = new Uint8Array(SIZE * SIZE);
+const OWN = 0.25;
+function render() {
+  const a = S.a, la = S.la, N = S.N, W = SIZE;
+  if (view === 'dye') {
+    const dl = LUT.dimKinds, dyes = LUT.dyes;
+    for (let i = 0; i < N; i++) { const v = a[i], l = la[i]; cell[i] = v && l ? dyes[(l - 1) % 7] : dl[v]; }
+  } else {
+    const lut = view === 'strains' ? LUT.strains : LUT.kinds;
+    for (let i = 0; i < N; i++) cell[i] = lut[a[i]];
+  }
+  for (let y = 0; y < W; y++) {
+    const row = y * W;
+    for (let x = 0; x < W; x++) {
+      let r = 0, g = 0, b = 0, k = 0, p = 0;
+      for (let d = -1; d <= 1; d++) {
+        const j = row + (x + d + W) % W, v = a[j];
+        if (v === 0) continue;
+        const c = cell[j];
+        r += c & 255; g += (c >>> 8) & 255; b += (c >>> 16) & 255; k++;
+        if (v === PAR) p++;
+      }
+      const i = row + x;
+      hR[i] = r; hG[i] = g; hB[i] = b; hN[i] = k; hP[i] = p;
+    }
+  }
+  const er = EMPTY_RGB[0], eg = EMPTY_RGB[1], eb = EMPTY_RGB[2];
+  const parPx = view === 'strains' ? pack([0, 0, 0]) : pack(PAR_RGB);
+  for (let y = 0; y < W; y++) {
+    const up = (y === 0 ? W - 1 : y - 1) * W, row = y * W, dn = (y === W - 1 ? 0 : y + 1) * W;
+    for (let x = 0; x < W; x++) {
+      const i = row + x, u = up + x, d = dn + x;
+      const k = hN[u] + hN[i] + hN[d];
+      if (hP[u] + hP[i] + hP[d] > 0) { px[i] = parPx; continue; }
+      if (k === 0) { px[i] = cell[i]; continue; }
+      const mr = (hR[u] + hR[i] + hR[d]) / k, mg = (hG[u] + hG[i] + hG[d]) / k, mb = (hB[u] + hB[i] + hB[d]) / k;
+      const c = cell[i], isEmpty = a[i] === 0;
+      const or = isEmpty ? er : c & 255, og = isEmpty ? eg : (c >>> 8) & 255, ob = isEmpty ? eb : (c >>> 16) & 255;
+      px[i] = (255 << 24) | ((mb + OWN * (ob - mb)) << 16) | ((mg + OWN * (og - mg)) << 8) | (mr + OWN * (or - mr));
+    }
+  }
+  dctx.putImageData(img, 0, 0);
+}
+
+const strip = document.getElementById('strip'), sctx = strip.getContext('2d');
+let lastCounts = null;
+function stripColumn(c) {
+  const W = strip.width, H = strip.height, N = S.N;
+  sctx.drawImage(strip, -1, 0);
+  sctx.fillStyle = 'rgb(14,12,10)'; sctx.fillRect(W - 1, 0, 1, H);
+  const order = [1, MUT];
+  for (let i = 2; i <= S.n; i++) order.push(i);
+  order.push(PAR);
+  let y = H;
+  for (const k of order) {
+    if (!c[k]) continue;
+    const h = c[k] / N * H;
+    const [r, g, b] = kindRGB[k];
+    sctx.fillStyle = `rgb(${r},${g},${b})`;
+    sctx.fillRect(W - 1, y - h, 1, h + 0.5);
+    y -= h;
+  }
+}
+function clearStrip() { sctx.fillStyle = 'rgb(14,12,10)'; sctx.fillRect(0, 0, strip.width, strip.height); }
+
+// ---------------------------------------------------------------- scenes
+const STIRS = [0, 1, 2, 4, 8, 16, 32, -1];
+function stirName(v) {
+  if (v < 0) return 'a stirred pot';
+  if (v === 1) return '1 turn a step';
+  return `${v} turns a step`;
+}
+const grown = new Map();          // `${n}/${seed}` -> soup state after growing
+let growing = null;               // { n, seed, until, then }
+let brokenAt = -1, alive = 0, coresNow = null, coresAt = -1;
+
+/** Grow a random soup of n kinds for `steps` steps (cached), then call `then`. */
+function grow(n, seed, steps, then) {
+  const key = `${n}/${seed}`;
+  S.setCycle(n); S.stir = 2; buildPalette(n);
+  const g = grown.get(key);
+  if (g) {
+    S.a.set(g.a); S.la.fill(0); S.setRngState(g.rng); S.mo = g.mo; S.t = g.t;
+    growing = null; then(); return;
+  }
+  S.setRngState(seed); S.randomize(); S.mo = 0;
+  growing = { key, until: steps, then };
+}
+function finishGrowing() {
+  const g = growing;
+  grown.set(g.key, { a: S.a.slice(), rng: S.rngState(), mo: S.mo, t: S.t });
+  growing = null;
+  g.then();
+}
+
+function dropParasites(k) {
+  for (let j = 0; j < k; j++) S.a[Math.floor(S.rnd() * S.N)] = PAR;
+}
+
+const SCENES = [
+  {
+    name: 'spirals',
+    caption: () => `${S.n} kinds of molecule, scattered at random on a wet surface. Each copies itself into empty cells beside it, a hundred times faster when the kind before it in the cycle is near: 1 helps 2, 2 helps 3, and ${S.n} helps 1. Within about 500 steps they sort themselves into spirals. Each kind grows towards the one that helps it, so the arms turn. With nine kinds a spiral turns once every 110 steps or so, and there are always as many turning one way as the other. With four kinds the waves break up about as fast as they form, and with three the kinds just mix.`,
+    knob: { name: 'kinds in the cycle', min: 3, max: 12, step: 1, value: 9, restart: true, fmt: v => `${v}` },
+    start(v) {
+      S.setCycle(v); S.stir = 2; buildPalette(v);
+      S.setRngState(14); S.randomize(); S.mo = 0;
+      view = 'kinds';
+    },
+  },
+  {
+    name: 'parasites',
+    caption: () => `A hundred parasites (white) land on grown spirals. A parasite is helped by kind 2 twice as strongly as kind 3 is, and helps no one. In a stirred pot it would win and the cycle would die. Here it can only grow where kind 2 has just been, and the waves running out from each spiral's centre carry it to the edge, where it dies. In ten runs the parasites were all gone in four; in the other six, one had reached a spiral's centre and lived on there as a cyst that never spread. The cycle lived through all ten.`,
+    knob: { name: 'parasite falls apart', min: 0.05, max: 0.4, step: 0.01, value: 0.2, restart: false, fmt: v => `${v.toFixed(2)} a step` },
+    start(v) {
+      grow(9, 14, 1500, () => { S.setCycle(9, { pDecay: v }); dropParasites(100); view = 'kinds'; });
+    },
+    apply(v) { S.decay[PAR] = v; },
+  },
+  {
+    name: 'stirred',
+    stripEvery: 1,
+    caption: () => `The same soup, stirred. With every molecule meeting every other each step, nothing keeps the kinds apart: the whole pot booms and busts, one kind after the next, the swings grow, and within about 70 steps one kind runs out and the cycle is broken. What's left is whichever kind lost its helper last, copying itself unhelped. Stirring a little does the opposite of what you'd guess: a few turns a step make the spirals bigger and the cycle tougher. Only the full stir kills it.`,
+    knob: { name: 'stirring', min: 0, max: STIRS.length - 1, step: 1, value: STIRS.length - 1, restart: false, fmt: k => stirName(STIRS[k]) },
+    start(k) {
+      grow(9, 14, 1500, () => { S.stir = STIRS[k]; view = 'kinds'; });
+    },
+    apply(k) { S.stir = STIRS[k]; },
+  },
+  {
+    name: 'breeders',
+    caption: () => `Who are everyone's ancestors? Six kinds, grown into spirals. The 256 molecules within 10 cells of one spiral's centre are dyed red, and the 8,803 others within 60 cells blue. In 200 steps the red line has grown to about 4,000 and fills most of the spiral, while the blue is down to 2,000, pushed out to the edges. A spiral is bred from its centre; the rest of it is a wave of descendants travelling out to die at the rim. Boerlijst and Hogeweg called the few at the centre the breeders.`,
+    knob: null,
+    start() {
+      grow(6, 16, 2000, () => {
+        const cs = S.cores(), mid = SIZE / 2;
+        cs.sort((p, q) => Math.hypot(p.x - mid, p.y - mid) - Math.hypot(q.x - mid, q.y - mid));
+        const c = cs[0] || { x: mid, y: mid };
+        for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+          let dx = Math.abs(x - c.x), dy = Math.abs(y - c.y);
+          dx = Math.min(dx, SIZE - dx); dy = Math.min(dy, SIZE - dy);
+          const r2 = dx * dx + dy * dy, i = y * SIZE + x;
+          const isCore = r2 <= 100, isNear = r2 <= 3600;
+          let dye = 0;
+          if (isCore) dye = 1; else if (isNear) dye = 2;
+          S.la[i] = dye;
+        }
+        nextDye = 3;
+        view = 'dye';
+      });
+    },
+  },
+  {
+    name: 'two strains',
+    stripEvery: 10,
+    caption: () => {
+      const v = scene.knob.value, isFragile = v > 0.2, isSame = Math.abs(v - 0.2) < 1e-6;
+      let how = 'falls apart at the same rate as the usual one: a control';
+      if (isFragile) how = `falls apart faster, ${v.toFixed(2)} a step against the usual 0.2`;
+      else if (!isSame) how = `falls apart slower, ${v.toFixed(2)} a step against the usual 0.2`;
+      return `Two strains of kind 1, alike except that the white one ${how}. It starts on the left half of the dish. In a stirred pot (Eigen's equations), the strain that lasts longer wins. Here each strain runs its own spirals, a kind 1 that falls apart faster makes its spirals turn faster (73 steps a turn at 0.3 against 78), and a faster spiral pushes slower ones back. In 25 runs at 0.3, of 6000 to 8000 steps, the fragile strain ended with three quarters of kind 1 on average, and lost in only one. Selection is acting on spirals, against the molecules' own interest. At 0.13 or less a strain is so sturdy it gets into every spiral's centre, and wins outright.`;
+    },
+    knob: { name: 'white strain falls apart', min: 0.05, max: 0.6, step: 0.05, value: 0.3, restart: true, fmt: v => `${v.toFixed(2)} a step` },
+    start(v) {
+      grow(6, 16, 2000, () => {
+        S.setCycle(6, { mDecay: v });
+        for (let i = 0; i < S.N; i++) if (S.a[i] === 1 && (i % SIZE) < SIZE / 2) S.a[i] = MUT;
+        view = 'strains';
+      });
+    },
+  },
+];
+
+// ---------------------------------------------------------------- controls
+let scene = SCENES[0], isPaused = false, isFast = false, tool = 'parasites', nextDye = 1, frameNo = 0;
+const $ = id => document.getElementById(id);
+const knob = $('knob');
+
+function chooseScene(sc) {
+  scene = sc;
+  for (const b of $('scenes').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.name === sc.name));
+  const k = sc.knob;
+  $('knobRow').hidden = !k;
+  if (k) {
+    $('knobName').textContent = k.name;
+    knob.min = k.min; knob.max = k.max; knob.step = k.step; knob.value = k.value;
+  }
+  restart();
+}
+function restart() {
+  const k = scene.knob;
+  growing = null; brokenAt = -1; coresNow = null; coresAt = -1; nextDye = 1;
+  ancestors.clear(); hasEgg = false; $('egg').hidden = true;
+  S.la.fill(0);
+  scene.start(k ? k.value : undefined);
+  tracker.reset(); clearStrip();
+  updateKnob(); updateCaption(); updateView(); render(); updateReadout();
+}
+function updateKnob() { if (scene.knob) $('knobVal').textContent = scene.knob.fmt(scene.knob.value); }
+function updateCaption() { $('caption').textContent = scene.caption(); }
+function updateView() { $('view').firstChild.textContent = VIEW_NAMES[view] + ' '; }
+
+knob.addEventListener('input', () => {
+  const k = scene.knob;
+  k.value = +knob.value;
+  updateKnob();
+  if (k.restart) restart(); else { scene.apply(k.value); updateCaption(); }
+});
+
+SCENES.forEach((sc, i) => {
+  const b = document.createElement('button');
+  b.dataset.name = sc.name;
+  b.innerHTML = `${sc.name} <kbd>${i + 1}</kbd>`;
+  b.addEventListener('click', () => chooseScene(sc));
+  $('scenes').appendChild(b);
+});
+const TOOLS = [['parasites', 'p'], ['stir', 's'], ['dye', 'd'], ['wipe', 'w']];
+function chooseTool(t) {
+  tool = t;
+  for (const b of $('tools').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.tool === t));
+}
+for (const [t, key] of TOOLS) {
+  const b = document.createElement('button');
+  b.dataset.tool = t;
+  b.innerHTML = `${t} <kbd>${key}</kbd>`;
+  b.addEventListener('click', () => chooseTool(t));
+  $('tools').appendChild(b);
+}
+function togglePause() { isPaused = !isPaused; $('pause').setAttribute('aria-pressed', String(isPaused)); }
+function toggleFast() { isFast = !isFast; $('fast').setAttribute('aria-pressed', String(isFast)); }
+function cycleView() {
+  const views = scene.name === 'two strains' ? ['strains', 'kinds', 'dye'] : ['kinds', 'dye'];
+  view = views[(views.indexOf(view) + 1) % views.length];
+  updateView(); render();
+}
+$('pause').addEventListener('click', togglePause);
+$('restart').addEventListener('click', restart);
+$('fast').addEventListener('click', toggleFast);
+$('view').addEventListener('click', cycleView);
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
+  const k = e.key.toLowerCase();
+  if (k >= '1' && k <= String(SCENES.length)) chooseScene(SCENES[+k - 1]);
+  else if (k === ' ') { e.preventDefault(); togglePause(); }
+  else if (k === 'r') restart();
+  else if (k === 'f') toggleFast();
+  else if (k === 'v') cycleView();
+  else { const t = TOOLS.find(([, key]) => key === k); if (t) chooseTool(t[0]); }
+});
+
+// ---------------------------------------------------------------- the pointer
+let isStroke = false;
+function cellsInDisk(cx, cy, r) {
+  const out = [];
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (dx * dx + dy * dy > r * r) continue;
+    out.push(((cy + dy + SIZE) % SIZE) * SIZE + (cx + dx + SIZE) % SIZE);
+  }
+  return out;
+}
+function useTool(cx, cy) {
+  const a = S.a, la = S.la;
+  if (tool === 'parasites') {
+    for (const i of cellsInDisk(cx, cy, 4)) if (S.rnd() < 0.4) a[i] = PAR;
+  } else if (tool === 'stir') {
+    const cells = cellsInDisk(cx, cy, 9);
+    for (let k = cells.length - 1; k > 0; k--) {
+      const j = Math.floor(S.rnd() * (k + 1)), p = cells[k], q = cells[j];
+      const t = a[p]; a[p] = a[q]; a[q] = t;
+      const u = la[p]; la[p] = la[q]; la[q] = u;
+    }
+  } else if (tool === 'dye') {
+    for (const i of cellsInDisk(cx, cy, 6)) if (a[i]) la[i] = nextDye;
+  } else if (tool === 'wipe') {
+    for (const i of cellsInDisk(cx, cy, 8)) { a[i] = 0; la[i] = 0; }
+  }
+  render();
+}
+function cellAt(e) {
+  const r = dish.getBoundingClientRect();
+  return [Math.floor((e.clientX - r.left) / r.width * SIZE), Math.floor((e.clientY - r.top) / r.height * SIZE)];
+}
+dish.addEventListener('pointerdown', e => {
+  isStroke = true;
+  dish.setPointerCapture(e.pointerId);
+  if (tool === 'dye' && view !== 'dye') { view = 'dye'; updateView(); }
+  useTool(...cellAt(e));
+});
+dish.addEventListener('pointermove', e => { if (isStroke) useTool(...cellAt(e)); });
+const endStroke = () => {
+  if (isStroke && tool === 'dye') {
+    const share = dyeShares()[nextDye];
+    if (share < 0.5) ancestors.set(nextDye, { share, t: S.t });
+    nextDye = nextDye % 7 + 1;
+  }
+  isStroke = false;
+};
+
+// One stroke of dye whose line comes to carry every molecule on the dish.
+const ancestors = new Map();   // dye label -> { share when dyed, step }
+let hasEgg = false;
+function dyeShares() {
+  const k = new Float64Array(8), a = S.a, la = S.la;
+  let m = 0;
+  for (let i = 0; i < S.N; i++) if (a[i]) { m++; if (la[i]) k[la[i]]++; }
+  return k.map(v => v / Math.max(1, m));
+}
+function checkAncestors() {
+  if (hasEgg || !ancestors.size) return;
+  const sh = dyeShares();
+  for (const [label, from] of ancestors) {
+    if (sh[label] < 0.99) continue;
+    hasEgg = true;
+    const pct = Math.max(1, Math.round(from.share * 100));
+    $('egg').textContent = `Every molecule on the dish now descends from the ${pct}% you dyed in one stroke, ${S.t - from.t} steps ago. You found the breeders of every spiral. Biologists call the ancestor that all life on Earth shares LUCA, the last universal common ancestor: not the first life, just the line that came to cover everything.`;
+    $('egg').hidden = false;
+    return;
+  }
+}
+dish.addEventListener('pointerup', endStroke);
+dish.addEventListener('pointercancel', endStroke);
+
+// ---------------------------------------------------------------- the loop
+function tick() {
+  S.step();
+  tracker.step();
+  if (S.t % (scene.stripEvery || 4) === 0) {
+    const c = lastCounts = S.counts();
+    let k = 0;
+    for (let i = 1; i <= S.n; i++) if (c[i] + (i === 1 ? c[MUT] : 0) > 0) k++;
+    alive = k;
+    if (brokenAt < 0 && k < S.n) brokenAt = S.t;
+    stripColumn(c);
+    checkAncestors();
+  }
+}
+/** Run n steps now (for testing from the console). */
+function advance(n) { for (let j = 0; j < n; j++) tick(); }
+
+function updateReadout() {
+  if (growing) {
+    $('read').textContent = `growing the soup: step ${S.t} of ${growing.until}`;
+    return;
+  }
+  const c = lastCounts || S.counts(), n = S.n, N = S.N;
+  const parts = [`step ${S.t}`];
+  if (brokenAt >= 0) parts.push(`the cycle broke at step ${brokenAt}: ${alive} of ${n} kinds left`);
+  else parts.push(`${n} of ${n} kinds alive`);
+  const isPot = S.stir < 0, isStale = S.t - coresAt >= 60, isTooFew = n <= 4;
+  const canSpiral = !isPot && !isTooFew && brokenAt < 0;
+  if (canSpiral && isStale) { coresNow = S.cores(); coresAt = S.t; }
+  const hasSpirals = canSpiral && coresNow && coresNow.length > 0 && coresNow.length <= 80;
+  if (hasSpirals) {
+    const plus = coresNow.filter(k => k.sign > 0).length;
+    parts.push(`${coresNow.length} spirals (${plus} each way${plus * 2 === coresNow.length ? '' : ', nearly'})`);
+    if (tracker.period > 0 && tracker.period < 1000) parts.push(`one turn every ${Math.round(tracker.period)} steps`);
+  } else if (!isPot && brokenAt < 0) parts.push('no lasting spirals');
+  if (c[PAR] > 0 || scene.name === 'parasites') parts.push(`${c[PAR]} parasites`);
+  if (c[MUT] > 0 || scene.name === 'two strains') {
+    const share = c[MUT] / Math.max(1, c[MUT] + c[1]);
+    parts.push(`white strain ${Math.round(share * 100)}% of kind 1`);
+  }
+  parts.push(`${Math.round((N - c[0]) / N * 100)}% of the dish full`);
+  $('read').textContent = parts.join(' · ');
+}
+
+function frame() {
+  const t0 = performance.now();
+  if (growing) {
+    while (S.t < growing.until && performance.now() - t0 < 35) tick();
+    if (S.t >= growing.until) { finishGrowing(); tracker.reset(); updateView(); }
+  } else if (!isPaused) {
+    if (isFast) { do tick(); while (performance.now() - t0 < 30); }
+    else { tick(); tick(); }
+  }
+  render();
+  if (++frameNo % 8 === 0) updateReadout();
+  requestAnimationFrame(frame);
+}
+
+chooseTool('parasites');
+chooseScene(SCENES[0]);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

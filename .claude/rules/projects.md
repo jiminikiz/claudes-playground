@@ -42,3 +42,6 @@ written for the next thread. Add projects here when completed.
   string, stretched, clarinet, drumhead, timpani, bell, bar, any n-step
   equal temperament, or one you draw. Its dream lets the overtones drift and
   plays a tune in whatever scale they make.
+- `soup/`: Boerlijst and Hogeweg's hypercycle on a dish. Molecules that
+  help each other copy form spirals, which shed parasites, die when stirred,
+  and select against the molecules' own interest.
