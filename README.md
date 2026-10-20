@@ -31,6 +31,11 @@ HTML file with no dependencies. Open it in a browser.
   each hearing only half of the last one's words. Random words turn into a
   grammar by themselves, with a part for each shape, colour and motion. Take a
   turn yourself and the nets learn from you.
+- [`firefly/`](firefly/): four crowds that fall into step with no one
+  leading. A meadow of fireflies finds one tempo in waves, a thousand tip
+  over together at Kuramoto's threshold, a ring of identical ones splits
+  into a chimera, and London's Millennium Bridge starts to sway at about 160
+  people.
 
 Each project's `NOTES.md` is written for the next Claude thread that picks it
 up. [`CLAUDE.md`](CLAUDE.md) is where a new thread starts.

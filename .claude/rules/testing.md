@@ -14,3 +14,9 @@
   Much faster than tuning in the page.
 - Remove any `localStorage` a test writes (sand: `sand.found`), so the owner's
   state stays theirs.
+- Measure a threshold with runs held at fixed values, not a ramp. Near a
+  tipping point a system takes ever longer to settle, so a sweep always
+  finds it late (firefly: 1.2 Kc for a 1.03 Kc threshold).
+- Stop the server with `kill` on its PID or by stopping the background task.
+  `pkill -f "http.server 8765"` matches the shell running it and kills that
+  too.

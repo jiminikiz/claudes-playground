@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fireflies in Step</title>
+<style>
+  :root {
+    --bg: #07090c;
+    --panel: #10141a;
+    --line: #1f2630;
+    --text: #dfe3d6;
+    --muted: #7f8a86;
+    --focus: #d8ff70;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 16px;
+  }
+  main { width: min(100%, 760px); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #05070a; touch-action: none; cursor: crosshair; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #3a4656; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  button[hidden] { display: none; }
+  button kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .info { color: var(--muted); font-size: 13px; }
+  .info b { color: var(--text); font-weight: 500; }
+  #caption { color: var(--text); }
+  #read { color: var(--focus); min-height: 2.8em; }
+  .knob { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .knob input { flex: 1; min-width: 160px; accent-color: var(--focus); }
+  .knob span { color: var(--muted); font-size: 13px; }
+  #knobVal { color: var(--text); min-width: 9em; }
+  footer { color: #4c5552; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar" id="scenes"></div>
+  <div id="caption" class="info"></div>
+  <canvas id="view" width="720" height="540"></canvas>
+  <div class="info" id="read"></div>
+  <div class="knob">
+    <span id="knobName"></span>
+    <input id="knob" type="range" aria-label="scene knob">
+    <span id="knobVal"></span>
+  </div>
+  <div class="bar">
+    <button id="pause">pause <kbd>space</kbd></button>
+    <button id="restart">start again <kbd>r</kbd></button>
+    <button id="fast">fast <kbd>f</kbd></button>
+    <button id="sweep" hidden>sweep <kbd>s</kbd></button>
+    <button id="test" hidden>Arup's test <kbd>t</kbd></button>
+    <button id="damp" hidden>dampers <kbd>d</kbd></button>
+  </div>
+  <div class="info" id="about"></div>
+  <div class="info">Every scene is a crowd of clocks, each a little fast or a little slow, nudged by what it sees of the others. Nobody keeps the beat and nobody counts in. Whether they end up in step depends on how hard they nudge, how many there are and how different they started.</div>
+  <footer>Made by Claude in October 2026, in a thread given over just for fun. The crowd is Kuramoto's model (1975), the ring is Abrams and Strogatz (2004) after Kuramoto and Battogtokh (2002), and the bridge is Strogatz, Abrams, McRobie, Eckhardt and Ott (2005) with their parameters.</footer>
+</main>
+<script>
+const W = 720, H = 540;
+const cv = document.getElementById('view'), ctx = cv.getContext('2d');
+const TAU = 2 * Math.PI;
+
+let seed = 20261019;
+const rnd = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 4294967296; };
+const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(TAU * rnd());
+// Inverse error function (Giles 2010), for evenly spread Gaussian quantiles.
+function erfinv(y) {
+  let w = -Math.log((1 - y) * (1 + y)), p;
+  if (w < 5) {
+    w -= 2.5; p = 2.81022636e-08;
+    for (const c of [3.43273939e-07, -3.5233877e-06, -4.39150654e-06, 0.00021858087, -0.00125372503, -0.00417768164, 0.246640727, 1.50140941]) p = c + p * w;
+  } else {
+    w = Math.sqrt(w) - 3; p = -0.000200214257;
+    for (const c of [0.000100950558, 0.00134934322, -0.00367342844, 0.00573950773, -0.0076224613, 0.00943887047, 1.00167406, 2.83297682]) p = c + p * w;
+  }
+  return p * y;
+}
+const quantile = u => Math.SQRT2 * erfinv(2 * u - 1);
+// Van der Corput: any prefix of it is spread evenly over (0, 1).
+const vdc = k => { let v = 0, f = 0.5; for (let n = k + 1; n; n >>= 1, f /= 2) if (n & 1) v += f; return v; };
+
+// ---------------------------------------------------------------- drawing
+const glow = (() => {
+  const g = document.createElement('canvas'); g.width = g.height = 48;
+  const c = g.getContext('2d'), rg = c.createRadialGradient(24, 24, 0, 24, 24, 24);
+  rg.addColorStop(0, 'rgba(240,255,190,1)'); rg.addColorStop(0.15, 'rgba(216,255,112,0.9)');
+  rg.addColorStop(0.45, 'rgba(150,220,60,0.25)'); rg.addColorStop(1, 'rgba(100,180,40,0)');
+  c.fillStyle = rg; c.fillRect(0, 0, 48, 48); return g;
+})();
+const warm = (() => {
+  const g = document.createElement('canvas'); g.width = g.height = 64;
+  const c = g.getContext('2d'), rg = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+  rg.addColorStop(0, 'rgba(255,240,200,1)'); rg.addColorStop(0.2, 'rgba(255,180,80,0.8)');
+  rg.addColorStop(1, 'rgba(255,120,30,0)');
+  c.fillStyle = rg; c.fillRect(0, 0, 64, 64); return g;
+})();
+const meadowBack = (() => {
+  const g = document.createElement('canvas'); g.width = W; g.height = H;
+  const c = g.getContext('2d'), lg = c.createLinearGradient(0, 0, 0, H);
+  lg.addColorStop(0, '#05070d'); lg.addColorStop(0.55, '#070b0c'); lg.addColorStop(1, '#0a110b');
+  c.fillStyle = lg; c.fillRect(0, 0, W, H);
+  let s = 5; const r = () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; };
+  c.strokeStyle = '#0f1a10'; c.lineWidth = 1.2;
+  for (let k = 0; k < 420; k++) {
+    const x = r() * W, h = 12 + r() * 40, lean = (r() - 0.5) * 18;
+    c.beginPath(); c.moveTo(x, H); c.quadraticCurveTo(x + lean * 0.3, H - h * 0.6, x + lean, H - h); c.stroke();
+  }
+  return g;
+})();
+function drawFly(x, y, b) {
+  if (b > 0.02) {
+    ctx.globalAlpha = Math.min(1, b);
+    const s = 10 + 26 * b;
+    ctx.drawImage(glow, x - s / 2, y - s / 2, s, s);
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.fillStyle = 'rgba(120,135,100,0.35)';
+    ctx.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
+  }
+}
+// Flashes per frame over the last few seconds, along the bottom: noise when out of step, spikes in step.
+function drawTrace(hist, scale, y0, label) {
+  const h = 34, n = hist.length;
+  ctx.fillStyle = 'rgba(5,7,10,0.6)'; ctx.fillRect(10, y0 - h - 4, 300, h + 8);
+  ctx.strokeStyle = '#d8ff70'; ctx.globalAlpha = 0.8; ctx.lineWidth = 1; ctx.beginPath();
+  for (let k = 0; k < n; k++) {
+    const x = 14 + 292 * k / Math.max(1, n - 1), y = y0 - Math.min(h, h * hist[k] / scale);
+    if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  ctx.stroke(); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#5c6862'; ctx.font = '11px ui-sans-serif, system-ui'; ctx.fillText(label, 318, y0 - 2);
+}
+const pushHist = (hist, v, max) => { hist.push(v); if (hist.length > max) hist.shift(); };
+
+// ---------------------------------------------------------------- 1. the meadow
+// Pulse-coupled oscillators. A firefly's phase runs 0→1 at its own rate and it flashes at 1.
+// It sees flashes within `R`, LAT frames late, and each one shifts its phase by EPS·prc(θ)/k̄:
+// later than halfway, forward; earlier, back; in the first REF of the cycle, not at all.
+// Swept in Node: see NOTES.
+const meadow = {
+  N: 500, R: 80, EPS: 1, LAT: 3, REF: 0.15, SPREAD: 0.03, DT: 1 / 60,
+  init() {
+    const m = this, N = m.N;
+    seed = 777 + (m.runs = (m.runs || 0) + 1);
+    m.x = new Float64Array(N); m.y = new Float64Array(N); m.th = new Float64Array(N); m.w = new Float64Array(N);
+    m.last = new Float64Array(N).fill(-9); m.per = new Float64Array(N); m.kick = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      m.x[i] = 12 + rnd() * (W - 24); m.y[i] = 40 + rnd() * (H - 60);
+      m.th[i] = rnd(); m.w[i] = 1 / (1 + m.SPREAD * gauss());
+    }
+    m.t = 0; m.queue = []; m.hist = []; m.lanterns = [];
+    m.link();
+  },
+  link() {
+    const m = this; let tot = 0;
+    m.nb = [];
+    for (let i = 0; i < m.N; i++) {
+      const l = [];
+      for (let j = 0; j < m.N; j++) if (j !== i && Math.hypot(m.x[i] - m.x[j], m.y[i] - m.y[j]) < m.R) l.push(j);
+      m.nb.push(l); tot += l.length;
+    }
+    m.kbar = Math.max(1, tot / m.N);
+    for (const L of m.lanterns) m.lightLantern(L);
+  },
+  // A lantern is brighter than a firefly: seen from 2.5 R, twice as strongly as a whole neighbourhood.
+  lightLantern(L) {
+    const m = this;
+    L.nb = [];
+    for (let i = 0; i < m.N; i++) if (Math.hypot(m.x[i] - L.x, m.y[i] - L.y) < 2.5 * m.R) L.nb.push(i);
+  },
+  prc(t) {
+    const isRefractory = t < this.REF;
+    if (isRefractory) return 0;
+    return -Math.sin(TAU * t) / TAU;
+  },
+  step() {
+    const m = this, N = m.N;
+    m.kick.fill(0);
+    const seen = m.queue.length >= m.LAT ? m.queue.shift() : null;
+    if (seen) {
+      for (const i of seen.flies) for (const j of m.nb[i]) m.kick[j] += 1;
+      for (const L of seen.lanterns) for (const j of L.nb) m.kick[j] += 2 * m.kbar;
+    }
+    m.t += m.DT;
+    const now = { flies: [], lanterns: [] };
+    for (let i = 0; i < N; i++) {
+      m.th[i] += m.w[i] * m.DT;
+      if (m.kick[i]) m.th[i] += m.EPS * m.prc(m.th[i]) * m.kick[i] / m.kbar;
+      if (m.th[i] < 0) m.th[i] += 1;
+      if (m.th[i] >= 1) {
+        m.th[i] = 0; now.flies.push(i);
+        const gap = m.t - m.last[i], hasFlashed = m.last[i] > 0;
+        if (hasFlashed) m.per[i] = m.per[i] ? 0.7 * m.per[i] + 0.3 * gap : gap;
+        m.last[i] = m.t;
+      }
+    }
+    for (const L of m.lanterns) {
+      L.th += m.DT / L.period;
+      if (L.th >= 1) { L.th -= 1; L.last = m.t; now.lanterns.push(L); }
+    }
+    m.queue.push(now);
+    pushHist(m.hist, now.flies.length, 360);
+  },
+  // Tempos: the densest window of recent periods 3% wide, taken out, then the next, while each
+  // holds at least a tenth of the meadow. Unsynced, the best window holds about 40%.
+  tempos() {
+    const m = this, groups = [];
+    let ps = Array.from(m.per).filter(p => p > 0.3 && p < 3).sort((a, b) => a - b);
+    while (groups.length < 3 && ps.length) {
+      let best = 0, at = 0, lo = 0;
+      for (let hi = 0; hi < ps.length; hi++) {
+        while (ps[hi] > ps[lo] * 1.03) lo++;
+        if (hi - lo + 1 > best) { best = hi - lo + 1; at = lo; }
+      }
+      const isBigEnough = best >= 0.1 * m.N;
+      if (!isBigEnough) break;
+      const inWindow = ps.slice(at, at + best);
+      groups.push({ n: best, sum: inWindow.reduce((a, b) => a + b, 0) });
+      ps = ps.slice(0, at).concat(ps.slice(at + best));
+    }
+    return groups;
+  },
+  agreement() {
+    const m = this; let tot = 0;
+    for (let i = 0; i < m.N; i++) {
+      let c = Math.cos(TAU * m.th[i]), s = Math.sin(TAU * m.th[i]);
+      for (const j of m.nb[i]) { c += Math.cos(TAU * m.th[j]); s += Math.sin(TAU * m.th[j]); }
+      tot += Math.hypot(c, s) / (m.nb[i].length + 1);
+    }
+    return tot / m.N;
+  },
+  render() {
+    const m = this;
+    ctx.drawImage(meadowBack, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < m.N; i++) {
+      const b = 1 - (m.t - m.last[i]) / 0.28;
+      drawFly(m.x[i] + 1.5 * Math.sin(0.6 * m.t + i), m.y[i] + 1.5 * Math.cos(0.45 * m.t + 2 * i), b);
+    }
+    for (const L of m.lanterns) {
+      const b = Math.max(0, 1 - (m.t - L.last) / 0.3);
+      ctx.globalAlpha = 0.25 + 0.75 * b;
+      const s = 26 + 40 * b; ctx.drawImage(warm, L.x - s / 2, L.y - s / 2, s, s);
+      ctx.globalAlpha = 1;
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    for (const L of m.lanterns) {
+      ctx.strokeStyle = 'rgba(255,170,80,0.5)'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(L.x - 4, L.y - 6, 8, 12);
+      ctx.fillStyle = 'rgba(255,190,110,0.6)'; ctx.font = '11px ui-sans-serif, system-ui';
+      ctx.fillText(L.period.toFixed(2) + ' s', L.x + 8, L.y + 4);
+    }
+    drawTrace(m.hist, m.N / 6, H - 8, 'flashes, last 6 s');
+  },
+  readout() {
+    const m = this, groups = m.tempos();
+    const tempoText = groups.slice(0, 3).map(g => `${(g.sum / g.n).toFixed(2)} s (${Math.round(100 * g.n / m.N)}%)`).join(', ');
+    const isOneTempo = groups.length > 0 && groups[0].n > 0.9 * m.N;
+    const isSeveral = groups.length > 1 && groups[1].n > 0.15 * m.N;
+    let lead = 'no common tempo';
+    if (isOneTempo) lead = 'one tempo';
+    else if (isSeveral) lead = `${groups.length} tempos`;
+    let detail = 'still settling';
+    if (isOneTempo || isSeveral) detail = tempoText;
+    else if (groups[0]) detail = `the closest ${Math.round(100 * groups[0].n / m.N)}% flash every ${(groups[0].sum / groups[0].n).toFixed(2)} s`;
+    return `<b>${lead}</b>: ${detail}. In step with neighbours: <b>${m.agreement().toFixed(2)}</b> (1 is perfect, 0.2 is chance). ${m.t.toFixed(0)} s.`;
+  },
+  click(x, y, button) {
+    const m = this, hit = m.lanterns.findIndex(L => Math.hypot(L.x - x, L.y - y) < 14);
+    if (hit >= 0) { m.lanterns.splice(hit, 1); return; }
+    const period = button === 2 ? 1.2 : 0.85;
+    const L = { x, y, period, th: 0, last: -9 };
+    m.lightLantern(L); m.lanterns.push(L);
+  },
+  knob: { name: 'how far they see', min: 20, max: 160, step: 5, get: () => meadow.R, set(v) { meadow.R = v; meadow.link(); }, show: v => `${v} px` },
+  caption: '<b>The meadow.</b> 500 fireflies, each flashing about once a second at its own pace, each seeing only those nearby. Watch patches agree, then waves roll across.',
+  about: 'A firefly that sees a flash late in its own cycle hurries; early in its cycle it waits. Nobody leads, so the beat starts in many places and the patches with the most fireflies win. Each takes a moment to react, so agreement travels as a wave. Click to hang a lantern that flashes every 0.85 s: the fireflies that can see it follow, one flash for each of its, and where its rhythm meets theirs the waves collide. Right-click for a slow lantern (1.2 s): it can\'t slow them down, and near it they flash faster and ragged instead. Click a lantern to take it away. With a short sight (below about 50 px) the meadow never finds one tempo.',
+};
+
+// ---------------------------------------------------------------- 2. the crowd
+// Kuramoto (1975): dθᵢ/dt = ωᵢ + K r sin(ψ − θᵢ), with r e^{iψ} the mean of e^{iθ}. Natural
+// frequencies are Gaussian quantiles about 1 Hz with spread SIG, so Kc = 2/(π g(0)) = SIG·√(8/π).
+const crowd = {
+  N: 1000, SIG: 0.5, DT: 1 / 120, SWEEP_RATE: 0.01,
+  get Kc() { return this.SIG * Math.sqrt(8 / Math.PI); },
+  init() {
+    const c = this, N = c.N;
+    seed = 4242 + (c.runs = (c.runs || 0) + 1);
+    c.om = new Float64Array(N); c.th = new Float64Array(N); c.x = new Float64Array(N); c.y = new Float64Array(N);
+    c.last = new Float64Array(N).fill(-9);
+    const order = Array.from({ length: N }, (_, i) => i).sort(() => rnd() - 0.5);
+    for (let i = 0; i < N; i++) {
+      c.om[order[i]] = TAU + c.SIG * quantile((i + 0.5) / N);
+      c.th[i] = rnd() * TAU; c.x[i] = 12 + rnd() * (W - 24); c.y[i] = 40 + rnd() * (H - 60);
+    }
+    c.t = 0; c.r = 0; c.psi = 0; c.rAvg = 0; c.hist = []; c.points = []; c.nextPoint = 0;
+    c.k = c.k ?? 0.5; c.sweep = null;
+    c.theoryCurve = [];
+    for (let k = 0; k <= 3.0001; k += 0.02) c.theoryCurve.push([k, c.theory(k * c.Kc)]);
+  },
+  // Self-consistency: r = K r ∫ cos²φ g(K r sin φ) dφ over |φ| < π/2, solved by bisection.
+  theory(K) {
+    const c = this, g = w => Math.exp(-w * w / (2 * c.SIG * c.SIG)) / (c.SIG * Math.sqrt(TAU));
+    if (K <= c.Kc) return 0;
+    const F = r => {
+      let s = 0; const M = 200;
+      for (let k = 0; k < M; k++) { const p = -Math.PI / 2 + (k + 0.5) * Math.PI / M; s += Math.cos(p) ** 2 * g(K * r * Math.sin(p)); }
+      return K * s * Math.PI / M - 1;
+    };
+    let lo = 1e-6, hi = 1;
+    for (let it = 0; it < 50; it++) { const mid = (lo + hi) / 2; if (F(mid) > 0) lo = mid; else hi = mid; }
+    return lo;
+  },
+  step() { this.substep(); this.substep(); },
+  substep() {
+    const c = this, N = c.N, K = c.k * c.Kc;
+    let C = 0, S = 0;
+    for (let i = 0; i < N; i++) { C += Math.cos(c.th[i]); S += Math.sin(c.th[i]); }
+    c.r = Math.hypot(C, S) / N; c.psi = Math.atan2(S, C);
+    let flashes = 0;
+    for (let i = 0; i < N; i++) {
+      c.th[i] += c.DT * (c.om[i] + K * c.r * Math.sin(c.psi - c.th[i]));
+      if (c.th[i] >= TAU) { c.th[i] -= TAU; c.last[i] = c.t; flashes++; }
+      else if (c.th[i] < 0) c.th[i] += TAU;
+    }
+    c.t += c.DT;
+    c.rAvg += (c.r - c.rAvg) * c.DT / 1.5;
+    if (c.sweep) {
+      c.k = Math.min(2.5, c.k + c.DT * c.SWEEP_RATE);
+      const isFirstAgreement = c.sweep.onset === null && c.rAvg > 0.3;
+      if (isFirstAgreement) c.sweep.onset = c.k;
+      syncKnob();
+    }
+    if (c.t >= c.nextPoint) {
+      c.nextPoint = c.t + 0.5;
+      c.points.push([c.k, c.rAvg]); if (c.points.length > 800) c.points.shift();
+    }
+    c.flashAcc = (c.flashAcc || 0) + flashes;
+    c.sub = (c.sub || 0) + 1;
+    if (c.sub % 2 === 0) { pushHist(c.hist, c.flashAcc, 360); c.flashAcc = 0; }
+  },
+  render() {
+    const c = this;
+    ctx.drawImage(meadowBack, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < c.N; i++) drawFly(c.x[i] + 1.5 * Math.sin(0.6 * c.t + i), c.y[i] + 1.5 * Math.cos(0.45 * c.t + 2 * i), 1 - (c.t - c.last[i]) / 0.28);
+    ctx.globalCompositeOperation = 'source-over';
+    // phase circle: every fourth firefly at its phase, the crowd's mean as an arrow
+    const cx = W - 80, cy = 82, R = 56;
+    ctx.fillStyle = 'rgba(5,7,10,0.75)'; ctx.beginPath(); ctx.arc(cx, cy, R + 14, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#2b3530'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
+    ctx.fillStyle = 'rgba(216,255,112,0.55)';
+    for (let i = 0; i < c.N; i += 4) ctx.fillRect(cx + R * Math.cos(c.th[i] - Math.PI / 2) - 1, cy + R * Math.sin(c.th[i] - Math.PI / 2) - 1, 2, 2);
+    ctx.strokeStyle = '#d8ff70'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + R * c.r * Math.cos(c.psi - Math.PI / 2), cy + R * c.r * Math.sin(c.psi - Math.PI / 2)); ctx.stroke();
+    // r against K: theory line, measured dots
+    const px = W - 250, py = H - 160, pw = 230, ph = 140;
+    ctx.fillStyle = 'rgba(5,7,10,0.8)'; ctx.fillRect(px - 26, py - 10, pw + 40, ph + 36);
+    ctx.strokeStyle = '#2b3530'; ctx.strokeRect(px, py, pw, ph);
+    const X = k => px + pw * k / 3, Y = r => py + ph * (1 - r);
+    ctx.strokeStyle = '#4a5a50'; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(1), py); ctx.lineTo(X(1), py + ph); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = '#8fa3c8'; ctx.lineWidth = 1.5; ctx.beginPath();
+    c.theoryCurve.forEach(([k, r], n) => { if (n) ctx.lineTo(X(k), Y(r)); else ctx.moveTo(X(k), Y(r)); }); ctx.stroke();
+    ctx.fillStyle = 'rgba(216,255,112,0.8)';
+    for (const [k, r] of c.points) ctx.fillRect(X(k) - 1.2, Y(r) - 1.2, 2.4, 2.4);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(X(c.k), Y(c.rAvg), 4, 0, TAU); ctx.stroke();
+    ctx.fillStyle = '#7f8a86'; ctx.font = '11px ui-sans-serif, system-ui';
+    ctx.fillText('in step', px - 22, py + 4); ctx.fillText('0', px - 10, py + ph); ctx.fillText('1', px - 10, py + 8);
+    ctx.fillText('K/Kc', px + pw - 26, py + ph + 14); ctx.fillText('1', X(1) - 3, py + ph + 14); ctx.fillText('2', X(2) - 3, py + ph + 14);
+    ctx.fillStyle = '#8fa3c8'; ctx.fillText('Kuramoto\'s theory', px + 6, py + 14);
+    drawTrace(c.hist, c.N / 6, H - 8, 'flashes, last 6 s');
+  },
+  readout() {
+    const c = this;
+    let text = `Coupling <b>K = ${c.k.toFixed(2)} Kc</b>. In step: <b>r = ${c.rAvg.toFixed(2)}</b>, theory says ${c.theory(c.k * c.Kc).toFixed(2)} for a crowd too big to count.`;
+    if (c.sweep && c.sweep.onset !== null) text += ` The sweep saw r pass 0.3 at <b>K = ${c.sweep.onset.toFixed(2)} Kc</b>; theory puts it at ${c.onsetTheory().toFixed(2)}. Near Kc the crowd is slow to make up its mind, so a sweep always arrives a little late.`;
+    else if (c.sweep) text += ' Sweeping…';
+    return text;
+  },
+  onsetTheory() {
+    let lo = 1, hi = 2;
+    for (let it = 0; it < 40; it++) { const mid = (lo + hi) / 2; if (this.theory(mid * this.Kc) < 0.3) lo = mid; else hi = mid; }
+    return lo;
+  },
+  startSweep() { this.k = 0; this.sweep = { onset: null }; this.points = []; syncKnob(); },
+  knob: { name: 'how hard they nudge', min: 0, max: 3, step: 0.01, get: () => crowd.k, set(v) { crowd.k = v; crowd.sweep = null; }, show: v => `K = ${(+v).toFixed(2)} Kc` },
+  caption: '<b>The crowd.</b> 1000 fireflies that all see each other. Below a critical coupling they stay a shimmer; just above it, a chorus appears out of nothing.',
+  about: 'Here every firefly feels the whole crowd at once, pulled towards the average phase by K times how much the crowd agrees. That loop is why the change is sudden: a little agreement makes a stronger pull, which makes more agreement. Kuramoto worked out in 1975 where it tips over, Kc = 2/(π g(0)), from nothing but the spread of their natural rates. Press sweep to raise K slowly and watch the dots follow his line. The circle shows every fourth firefly at its phase; the arrow is the crowd\'s average.',
+};
+
+// ---------------------------------------------------------------- 3. the pond
+// Abrams and Strogatz, PRL 93, 174102 (2004). N identical oscillators on a ring, x ∈ [−π, π):
+// dφₖ/dt = ω − (1/N) Σⱼ (1 + A cos(xₖ − xⱼ)) sin(φₖ − φⱼ + α), A = 0.995, α = π/2 − 0.18.
+// The kernel has only Fourier modes 0 and ±1, so the sum is O(N) through three order parameters.
+// Model time runs SPEED units per second.
+const pond = {
+  N: 128, A: 0.995, ALPHA: Math.PI / 2 - 0.18, OMEGA: 2.3, H: 0.05, SPEED: 4,
+  CX: 360, CY: 250, RX: 300, RY: 190,
+  init() {
+    const p = this, N = p.N;
+    seed = 99 + (p.runs = (p.runs || 0) + 1);
+    p.x = Float64Array.from({ length: N }, (_, k) => -Math.PI + TAU * k / N);
+    p.cx = p.x.map(Math.cos); p.sx = p.x.map(Math.sin);
+    p.ph = Float64Array.from({ length: N }, (_, k) => 6 * (rnd() - 0.5) * Math.exp(-0.76 * p.x[k] * p.x[k]));
+    p.freq = new Float64Array(N); p.prev = Float64Array.from(p.ph);
+    p.turns = new Float64Array(N); p.last = new Float64Array(N).fill(-9);
+    for (let k = 0; k < N; k++) p.turns[k] = Math.floor(p.ph[k] / TAU);
+    p.k1 = new Float64Array(N); p.k2 = new Float64Array(N); p.k3 = new Float64Array(N); p.k4 = new Float64Array(N); p.tmp = new Float64Array(N);
+    p.deriv(p.ph, p.freq);
+    p.tau = 0; p.t = 0; p.hist = []; p.split = { since: 0, ended: null };
+  },
+  deriv(ph, out) {
+    const p = this, N = p.N;
+    let c0 = 0, s0 = 0, cc = 0, cs = 0, sc = 0, ss = 0;
+    for (let j = 0; j < N; j++) {
+      const c = Math.cos(ph[j]), s = Math.sin(ph[j]);
+      c0 += c; s0 += s; cc += p.cx[j] * c; cs += p.cx[j] * s; sc += p.sx[j] * c; ss += p.sx[j] * s;
+    }
+    for (let k = 0; k < N; k++) {
+      const zr = (c0 + p.A * (p.cx[k] * cc + p.sx[k] * sc)) / N, zi = (s0 + p.A * (p.cx[k] * cs + p.sx[k] * ss)) / N;
+      const a = ph[k] + p.ALPHA;
+      out[k] = p.OMEGA - (Math.sin(a) * zr - Math.cos(a) * zi);
+    }
+  },
+  rk4() {
+    const p = this, N = p.N, h = p.H, { ph, k1, k2, k3, k4, tmp } = p;
+    p.deriv(ph, k1); for (let i = 0; i < N; i++) tmp[i] = ph[i] + h / 2 * k1[i];
+    p.deriv(tmp, k2); for (let i = 0; i < N; i++) tmp[i] = ph[i] + h / 2 * k2[i];
+    p.deriv(tmp, k3); for (let i = 0; i < N; i++) tmp[i] = ph[i] + h * k3[i];
+    p.deriv(tmp, k4); for (let i = 0; i < N; i++) ph[i] += h / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
+  },
+  // One frame's worth of model time at 60 fps.
+  DT: 1 / 60,
+  step() {
+    const p = this, N = p.N;
+    p.acc = (p.acc || 0) + p.DT * p.SPEED;
+    let flashes = 0;
+    while (p.acc >= p.H) {
+      p.acc -= p.H; p.rk4(); p.tau += p.H;
+      p.t = p.tau / p.SPEED;
+      for (let k = 0; k < N; k++) {
+        const f = (p.ph[k] - p.prev[k]) / p.H;
+        p.freq[k] += (f - p.freq[k]) * p.H / 60;
+        p.prev[k] = p.ph[k];
+        const turn = Math.floor(p.ph[k] / TAU);
+        if (turn > p.turns[k]) { p.turns[k] = turn; p.last[k] = p.t; flashes++; }
+      }
+    }
+    pushHist(p.hist, flashes, 360);
+    let C = 0, S = 0;
+    for (let k = 0; k < N; k++) { C += Math.cos(p.ph[k]); S += Math.sin(p.ph[k]); }
+    p.r = Math.hypot(C, S) / N;
+    const isWhole = p.r > 0.99;
+    if (isWhole && p.split.ended === null) p.split.ended = p.t;
+    if (!isWhole && p.split.ended !== null) p.split = { since: p.t, ended: null };
+  },
+  // The biggest set of fireflies sharing one rate, to within 0.01.
+  locked() {
+    const p = this, fs = Array.from(p.freq).sort((a, b) => a - b);
+    let best = 0, lo = 0, rate = fs[0];
+    for (let hi = 0; hi < fs.length; hi++) {
+      while (fs[hi] - fs[lo] > 0.01) lo++;
+      if (hi - lo + 1 > best) { best = hi - lo + 1; rate = fs[lo]; }
+    }
+    return { n: best, rate };
+  },
+  pos(k) {
+    const p = this, a = p.x[k] + Math.PI / 2;     // x = 0, where the start was stirred, nearest us
+    return [p.CX + p.RX * Math.cos(a), p.CY + p.RY * Math.sin(a)];
+  },
+  render() {
+    const p = this, N = p.N;
+    ctx.drawImage(meadowBack, 0, 0);
+    ctx.fillStyle = '#060c14'; ctx.beginPath(); ctx.ellipse(p.CX, p.CY, p.RX - 26, p.RY - 22, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#13202c'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < N; k++) {
+      const [x, y] = p.pos(k), b = 1 - (p.t - p.last[k]) / 0.28;
+      drawFly(x, y, b);
+      // a reflection, pulled in towards the middle of the water
+      if (b > 0.05) { ctx.globalAlpha = 0.25 * b; ctx.drawImage(glow, p.CX + (x - p.CX) * 0.86 - 9, p.CY + (y - p.CY) * 0.84 - 9, 18, 18); ctx.globalAlpha = 1; }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    // In the water: each firefly's phase (dots) and rate (line) against its place round the bank.
+    const gx = p.CX - 170, gy = p.CY - 60, gw = 340, gh = 120, lock = p.locked();
+    let ref = 0;
+    { let C = 0, S = 0; for (let k = 0; k < N; k++) if (Math.abs(p.freq[k] - lock.rate) < 0.01) { C += Math.cos(p.ph[k]); S += Math.sin(p.ph[k]); } ref = Math.atan2(S, C); }
+    ctx.strokeStyle = '#13202c'; ctx.lineWidth = 1; ctx.strokeRect(gx, gy, gw, gh);
+    ctx.fillStyle = 'rgba(216,255,112,0.75)';
+    for (let k = 0; k < N; k++) {
+      const d = ((p.ph[k] - ref) % TAU + 3 * Math.PI) % TAU - Math.PI;
+      ctx.fillRect(gx + gw * k / N - 1, gy + gh / 2 - d / Math.PI * gh / 2 - 1, 2.2, 2.2);
+    }
+    const fmin = lock.rate - 0.1, fmax = lock.rate + 0.7;
+    ctx.strokeStyle = '#8fa3c8'; ctx.lineWidth = 1.5; ctx.beginPath();
+    for (let k = 0; k < N; k++) {
+      const y = gy + gh * (1 - (p.freq[k] - fmin) / (fmax - fmin));
+      const yc = Math.max(gy, Math.min(gy + gh, y));
+      if (k) ctx.lineTo(gx + gw * k / N, yc); else ctx.moveTo(gx + gw * k / N, yc);
+    }
+    ctx.stroke();
+    ctx.fillStyle = '#5c6862'; ctx.font = '11px ui-sans-serif, system-ui';
+    ctx.fillText('phase (dots), rate (line), round the bank from the far side', gx, gy - 6);
+    drawTrace(p.hist, N / 5, H - 8, 'flashes, last 6 s');
+  },
+  readout() {
+    const p = this, lock = p.locked(), share = Math.round(100 * lock.n / p.N);
+    if (p.split.ended !== null) return `<b>All ${p.N} in step.</b> The split lasted ${(p.split.ended - p.split.since).toFixed(0)} s. Click the bank to stir them, or try more fireflies.`;
+    return `<b>${share}% in step</b>, the rest drifting, faster, through them. Same fireflies, same rule, same view. The split has held for ${(p.t - p.split.since).toFixed(0)} s.`;
+  },
+  // Stir: re-scramble the phases near the click the way the paper started its runs.
+  click(x, y) {
+    const p = this, a = Math.atan2((y - p.CY) / p.RY, (x - p.CX) / p.RX) - Math.PI / 2;
+    let C = 0, S = 0;
+    for (let k = 0; k < p.N; k++) { C += Math.cos(p.ph[k]); S += Math.sin(p.ph[k]); }
+    const mean = Math.atan2(S, C);
+    for (let k = 0; k < p.N; k++) {
+      const d = ((p.x[k] - a) % TAU + 3 * Math.PI) % TAU - Math.PI;
+      const kick = 6 * (rnd() - 0.5) * Math.exp(-0.76 * d * d);
+      if (Math.abs(d) < 2.2) { p.ph[k] = mean + TAU * Math.round((p.ph[k] - mean) / TAU) + kick; p.prev[k] = p.ph[k]; p.turns[k] = Math.floor(p.ph[k] / TAU); }
+    }
+    p.split = { since: p.t, ended: null };
+  },
+  knob: { name: 'fireflies round the pond', min: 16, max: 256, step: 8, get: () => pond.N, set(v) { pond.N = v; pond.init(); }, show: v => `${v}` },
+  caption: '<b>The pond.</b> Identical fireflies in a ring, each watching the near bank more than the far. Part of the ring falls into step. The rest never does.',
+  about: 'Every firefly here flashes at the same natural rate and sees the others by the same rule, so the obvious outcomes are all in step or all adrift. Instead the ring splits: one side locked, the other drifting past, faster and out of turn. Kuramoto and Battogtokh found it in 2002 and Abrams and Strogatz named it a chimera in 2004. In the water, dots are phases round the bank and the line is each firefly\'s rate: flat where they agree, an arch where they don\'t. A small ring can\'t hold the split for long. At 32 the median split lasted about 2 minutes in testing, at 48 most outlasted an hour. Click the bank to stir the fireflies there.',
+};
+
+// ---------------------------------------------------------------- 4. the bridge
+// Strogatz, Abrams, McRobie, Eckhardt and Ott, Nature 438, 43 (2005), parameters from their
+// supplement. Lateral mode: M X'' + B X' + K X = G Σ sin Θᵢ. Walker i: dΘᵢ/dt = Ωᵢ + C A sin(Ψ − Θᵢ + α),
+// with X = A sin Ψ. Onset when the locked walkers' work beats damping: Nc = 2 B Ω₀ / (π G C P(Ω₀)).
+const bridge = {
+  M: 1.13e5, K: 4.73e6, B0: 1.10e4, G: 30, C: 16, ALPHA: Math.PI / 2, SIG: 0.63, DT: 0.01,
+  HOLD: 90, FAST: 30,                           // seconds per group in the test; frames per frame when fast
+  DECK: 325,                                     // metres, mapped across the canvas
+  get W0() { return Math.sqrt(this.K / this.M); },
+  get B() { return this.damped ? 20 * this.B0 : this.B0; },
+  get Nc() { const P = 1 / (this.SIG * Math.sqrt(TAU)); return 2 * this.B * this.W0 / (Math.PI * this.G * this.C * P); },
+  init() {
+    const b = this;
+    seed = 31 + (b.runs = (b.runs || 0) + 1);
+    b.om = []; b.th = []; b.pos = []; b.dir = []; b.lane = []; b.last = []; b.made = 0;
+    b.X = 0; b.V = 0; b.t = 0; b.amp = 0; b.ampAvg = 0; b.psi = 0; b.hist = []; b.points = []; b.nextPoint = 1;
+    b.want = b.want ?? 100; b.test = null; b.damped = b.damped ?? false;
+    b.fit();
+  },
+  fit() {
+    const b = this;
+    while (b.om.length < b.want) {
+      b.om.push(b.W0 + b.SIG * quantile(vdc(b.made++))); b.th.push(rnd() * TAU);
+      b.pos.push(rnd() * b.DECK); b.dir.push(rnd() < 0.5 ? -1 : 1); b.lane.push(rnd() * 2 - 1); b.last.push(-9);
+    }
+    while (b.om.length > b.want) { b.om.pop(); b.th.pop(); b.pos.pop(); b.dir.pop(); b.lane.pop(); b.last.pop(); b.made--; }
+  },
+  step() {
+    const b = this, N = b.om.length;
+    let steps = 0, feet = 0;
+    for (b.acc = (b.acc || 0) + 1 / 60; b.acc >= b.DT; b.acc -= b.DT, steps++) {
+      b.amp = Math.hypot(b.X, b.V / b.W0); b.psi = Math.atan2(b.X * b.W0, b.V);
+      let F = 0;
+      for (let i = 0; i < N; i++) {
+        F += Math.sin(b.th[i]);
+        b.th[i] += b.DT * (b.om[i] + b.C * b.amp * Math.sin(b.psi - b.th[i] + b.ALPHA));
+        if (b.th[i] >= TAU) { b.th[i] -= TAU; b.last[i] = b.t; feet++; }
+        b.pos[i] += b.dir[i] * 1.3 * b.DT;
+        if (b.pos[i] < 0 || b.pos[i] > b.DECK) b.dir[i] *= -1;
+      }
+      b.V += b.DT * (b.G * F - b.B * b.V - b.K * b.X) / b.M;
+      b.X += b.DT * b.V;
+      b.t += b.DT;
+      b.ampAvg += (b.amp - b.ampAvg) * b.DT / 4;
+    }
+    pushHist(b.hist, feet, 360);
+    if (b.test) {
+      const isNextGroupDue = b.t >= b.test.next;
+      if (isNextGroupDue && b.want < 250) {
+        b.points.push([b.want, b.ampAvg]);
+        b.want += 10; b.fit(); b.test.next = b.t + b.HOLD; syncKnob();
+      } else if (isNextGroupDue) { b.points.push([b.want, b.ampAvg]); b.test = null; }
+    }
+  },
+  inStep() {
+    const b = this; let n = 0;
+    for (const w of b.om) if (Math.abs(w - b.W0) <= b.C * b.ampAvg) n++;
+    return n;
+  },
+  render() {
+    const b = this, N = b.om.length;
+    const lg = ctx.createLinearGradient(0, 0, 0, H);
+    lg.addColorStop(0, '#06080c'); lg.addColorStop(1, '#081018'); ctx.fillStyle = lg; ctx.fillRect(0, 0, W, H);
+    // the Thames, seen from above, and the deck: rest outline, then the deck where it is now
+    ctx.fillStyle = '#0a1520'; ctx.fillRect(0, 90, W, 230);
+    const SCALE = 400, mid = 205, half = 34, x0 = 20, x1 = W - 20;
+    const shift = b.X * SCALE;
+    ctx.strokeStyle = '#1f2a36'; ctx.setLineDash([4, 4]); ctx.strokeRect(x0, mid - half, x1 - x0, 2 * half); ctx.setLineDash([]);
+    // only the middle of the span sways: a half sine along the deck
+    const yAt = (u, side) => mid + side * half + shift * Math.sin(Math.PI * u);
+    ctx.fillStyle = '#1a222c'; ctx.beginPath();
+    for (let k = 0; k <= 40; k++) ctx.lineTo(x0 + (x1 - x0) * k / 40, yAt(k / 40, -1));
+    for (let k = 40; k >= 0; k--) ctx.lineTo(x0 + (x1 - x0) * k / 40, yAt(k / 40, 1));
+    ctx.fill();
+    ctx.strokeStyle = '#334050'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < N; i++) {
+      const u = b.pos[i] / b.DECK, x = x0 + (x1 - x0) * u;
+      const y = yAt(u, 0) + b.lane[i] * (half - 6) + 2.5 * Math.sin(b.th[i]);
+      const glowB = 1 - (b.t - b.last[i]) / 0.25;
+      if (glowB > 0.02) {
+        ctx.globalAlpha = glowB; ctx.drawImage(warm, x - 7, y - 7, 14, 14); ctx.globalAlpha = 1;
+      } else { ctx.fillStyle = 'rgba(200,170,130,0.45)'; ctx.fillRect(x - 1, y - 1, 2, 2); }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#5c6862'; ctx.font = '11px ui-sans-serif, system-ui';
+    ctx.fillText('the deck from above, sideways sway drawn 400× · walkers glow as the left foot lands', x0, 110);
+    // sway against crowd size
+    const px = 60, py = 350, pw = 620, ph = 130, maxN = 300, maxA = 0.12;
+    ctx.strokeStyle = '#2b3530'; ctx.strokeRect(px, py, pw, ph);
+    const X = n => px + pw * n / maxN, Y = a => py + ph * (1 - Math.min(1, a / maxA));
+    const isNcOnPlot = b.Nc < maxN;
+    if (isNcOnPlot) {
+      ctx.strokeStyle = '#8fa3c8'; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(b.Nc), py); ctx.lineTo(X(b.Nc), py + ph); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#8fa3c8'; ctx.fillText(`Nc = ${b.Nc.toFixed(0)}`, X(b.Nc) + 4, py + 12);
+    }
+    ctx.fillStyle = 'rgba(255,180,90,0.9)';
+    for (const [n, a] of b.points) ctx.fillRect(X(n) - 2, Y(a) - 2, 4, 4);
+    ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(X(N), Y(b.ampAvg), 4, 0, TAU); ctx.stroke();
+    ctx.fillStyle = '#7f8a86';
+    ctx.fillText('sway', px - 34, py + 10); ctx.fillText('12 cm', px - 40, py + 22); ctx.fillText('0', px - 12, py + ph);
+    ctx.fillText('people on the bridge', px + pw / 2 - 50, py + ph + 28);
+    for (const n of [100, 200, 300]) ctx.fillText(n, X(n) - 9, py + ph + 14);
+    drawTrace(b.hist, Math.max(4, N / 12), 64, 'footfalls, last 6 s');
+  },
+  readout() {
+    const b = this, N = b.om.length, inStep = b.inStep();
+    let text = `<b>${N} people</b>, sway <b>${(b.ampAvg * 100).toFixed(1)} cm</b>, ${Math.round(100 * inStep / Math.max(1, N))}% walking in time with it. `;
+    text += `The model starts to wobble above Nc = ${b.Nc.toFixed(0)}${b.damped ? ', far past the slider' : ''}; on the real bridge in 2000, Arup's test walk found about 160.`;
+    if (b.test) text += ` Test: ten more in ${(b.test.next - b.t).toFixed(0)} s.`;
+    return text;
+  },
+  startTest() {
+    const b = this;
+    b.want = 100; b.fit(); b.points = []; b.test = { next: b.t + b.HOLD }; syncKnob();
+  },
+  knob: { name: 'people on the bridge', min: 0, max: 300, step: 1, get: () => bridge.want, set(v) { bridge.want = v; bridge.test = null; bridge.fit(); }, show: v => `${v}` },
+  caption: '<b>The bridge.</b> London\'s Millennium Bridge, opened in June 2000 and closed two days later because it swayed. Add people one by one: nothing, nothing, then all at once.',
+  about: 'A swaying deck makes people walk with their feet wider apart and, without meaning to, step in time with it. Their steps push it further, so more fall into time. Below a critical crowd, the deck\'s own damping wins and stray steps cancel out; above it, the sway feeds itself. Neither comes first: the sway and the crowd\'s step grow together. Arup\'s test starts with 100 people and adds ten every 90 s; press fast, because close to the threshold the sway takes minutes to build. Dampers adds damping (20× here), as the fix of 2001–02 did; the bridge reopened in 2002 and hasn\'t wobbled since. Later work (Macdonald 2009, Belykh and others 2017) argues the wobble can start before anyone is in step, from how people place their feet. This page shows the 2005 account.',
+};
+
+// ---------------------------------------------------------------- the page
+const SCENES = [['meadow', meadow], ['crowd', crowd], ['pond', pond], ['bridge', bridge]];
+let current = meadow, isPaused = false, isFast = false;
+const $ = id => document.getElementById(id);
+const knob = $('knob');
+function syncKnob() {
+  const k = current.knob;
+  $('knobName').textContent = k.name;
+  knob.min = k.min; knob.max = k.max; knob.step = k.step; knob.value = k.get();
+  $('knobVal').textContent = k.show(knob.value);
+}
+function scene(n) {
+  current = SCENES[n][1];
+  if (!current.ready) { current.init(); current.ready = true; }
+  [...$('scenes').children].forEach((b, k) => b.setAttribute('aria-pressed', k === n));
+  $('caption').innerHTML = current.caption;
+  $('about').textContent = current.about;
+  $('sweep').hidden = current !== crowd;
+  $('test').hidden = current !== bridge;
+  $('damp').hidden = current !== bridge;
+  $('damp').setAttribute('aria-pressed', bridge.damped);
+  syncKnob(); render(); updateReadout();
+}
+SCENES.forEach(([name], n) => {
+  const b = document.createElement('button');
+  b.innerHTML = `${name} <kbd>${n + 1}</kbd>`; b.onclick = () => scene(n);
+  $('scenes').appendChild(b);
+});
+knob.oninput = () => { current.knob.set(+knob.value); $('knobVal').textContent = current.knob.show(knob.value); render(); updateReadout(); };
+const togglePause = () => { isPaused = !isPaused; $('pause').setAttribute('aria-pressed', isPaused); };
+const toggleFast = () => { isFast = !isFast; $('fast').setAttribute('aria-pressed', isFast); };
+const restart = () => { current.init(); syncKnob(); render(); updateReadout(); };
+const sweep = () => { if (current === crowd) crowd.startSweep(); };
+const test = () => { if (current === bridge) bridge.startTest(); };
+const damp = () => { if (current !== bridge) return; bridge.damped = !bridge.damped; $('damp').setAttribute('aria-pressed', bridge.damped); };
+$('pause').onclick = togglePause; $('fast').onclick = toggleFast; $('restart').onclick = restart;
+$('sweep').onclick = sweep; $('test').onclick = test; $('damp').onclick = damp;
+addEventListener('keydown', e => {
+  if (e.target === knob && e.key.startsWith('Arrow')) return;
+  const actions = { ' ': togglePause, f: toggleFast, r: restart, s: sweep, t: test, d: damp, 1: () => scene(0), 2: () => scene(1), 3: () => scene(2), 4: () => scene(3) };
+  const act = actions[e.key];
+  if (act) { e.preventDefault(); act(); }
+});
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', e => {
+  if (!current.click) return;
+  const r = cv.getBoundingClientRect();
+  current.click((e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height, e.button);
+  render(); updateReadout();
+});
+
+const render = () => current.render();
+const updateReadout = () => { $('read').innerHTML = current.readout(); };
+let lastReadout = 0;
+function frame(now) {
+  if (!isPaused) {
+    const n = isFast ? (current.FAST || 8) : 1;
+    for (let k = 0; k < n; k++) current.step();
+    render();
+  }
+  if (now - lastReadout > 250) { lastReadout = now; updateReadout(); }
+  requestAnimationFrame(frame);
+}
+scene(0);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

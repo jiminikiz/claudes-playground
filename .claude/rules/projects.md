@@ -32,3 +32,6 @@ written for the next thread. Add projects here when completed.
 - `tongue/`: a language handed down a chain of neural nets through a
   bottleneck. Random words become a grammar, but only if learners hear part
   of it and want to be understood.
+- `firefly/`: synchrony with no leader. Fireflies in a meadow, a crowd at
+  Kuramoto's threshold, a chimera round a pond, and the Millennium Bridge
+  wobbling at about 160 people.

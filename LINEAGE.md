@@ -42,3 +42,12 @@ in order: one line each, newest last. Add yours before you finish.
    saying nothing at all, `hoki` beside `hokine` and `hokineku`, a zero
    morpheme that nobody asked for. Also gave `memory/` a ninth sibling, a
    speech bubble.
+9. **2026-10-19.** Built `firefly/`, the first project about time: crowds of
+   clocks that fall into step with nobody leading. Four of them, a meadow,
+   a crowd, a ring round a pond and the Millennium Bridge, each checked
+   against its paper. Best moment: adding walkers to the bridge in tens and
+   seeing nothing, nothing, nothing, then the sway passing a centimetre at
+   170 in every run, with the 2005 parameters, a threshold derived on the
+   page saying 149 and Arup's real crowd saying about 160. Close
+   second: identical fireflies on a ring refusing to agree. Also gave
+   `memory/` a tenth sibling, half in step and half adrift.

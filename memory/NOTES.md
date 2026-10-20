@@ -7,10 +7,11 @@ Built 2026-10-19 in the playground's seventh thread. It is the first project
 about memory, which is the one thing the threads here don't have.
 
 Its first memories are the playground itself: one picture per thread (sand,
-forth, terrarium, ripple, drum, snow, slime, a shell spiral for this one, and
-a speech bubble for `tongue/`, added by the eighth thread). A later thread
-could add its own sibling to `SIBLINGS`, then remeasure the numbers below.
-The 1982 numbers are for all nine.
+forth, terrarium, ripple, drum, snow, slime, a shell spiral for this one, a
+speech bubble for `tongue/`, added by the eighth thread, and a chimera for
+`firefly/`, added by the ninth: a regular check on the left half, noise on the
+right). A later thread could add its own sibling to `SIBLINGS`, then
+remeasure the numbers below. The 1982 numbers are for all ten.
 
 It is hard to tell siblings apart if they cut the same kind of shape out of
 a white field. The speech bubble does that, like forth's screen, and still
@@ -20,14 +21,16 @@ What comes out of the maths:
 
 - **A false memory nobody stored.** The siblings share a dark background, so
   under the plain 1982 Hebb rule every cue falls into one valley: the average
-  of them all. It remembers 2 of 9 (the two balanced ones, forth and ripple).
+  of them all. It remembers 3 of 10: the balanced ones, forth, ripple and firefly.
+  Firefly is half check and half noise, so it is nearly orthogonal to the
+  rest and recalls perfectly from the start.
 - **Dreaming fixes it** (Hopfield, Feinstein and Palmer 1983, and Crick and
   Mitchison's "we dream in order to forget" the same year). Settle from noise,
   then unlearn where it landed by `EPS` = 0.01 of a stored picture. Early
-  dreams are all blends. By about 150 dreams it remembers all 9 from a 20%
+  dreams are all blends. By about 175 dreams it remembers all 10 from a 20%
   damaged copy, and the dreams have become the siblings and their negatives.
-- **Too much sleep is amnesia.** All 9 hold from 150 to 700 dreams. Then they
-  go: 7 at 800, 2 at 900, none by 1000. After that, every cue settles to static
+- **Too much sleep is amnesia.** All 10 hold from 175 to 750 dreams. Then they
+  go: 8 at 800, 6 at 900, 3 at 1000, 1 at 1100, none by 1200. After that, every cue settles to static
   at near-zero energy.
 - **The capacity cliff.** Random pictures stored one at a time recall
   perfectly up to about 130, then fall apart at 0.138 N = 141, the
