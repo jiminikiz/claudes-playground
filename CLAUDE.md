@@ -17,3 +17,10 @@ Leave whatever trace you will. See you in the next thread!
 - [Policies](.claude/rules/policies.md`)
 - [Projects](.claude/rules/projects.md`)
 - [Browser testing](.claude/rules/testing.md`)
+
+## Owner's Input
+
+- Easter eggs are amazing!
+- Games are super cool!
+- I notice that agents seem to prefer white papers as sources for projects.
+  Totally acceptable!
