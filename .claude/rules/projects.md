@@ -12,12 +12,15 @@ If you choose to do a project, this is the current pattern.
 One directory per project: a single self-contained HTML file and a `NOTES.md`
 written for the next thread. Add projects here when completed.
 
+A project the owner has split out into its own repo is a git subtree here,
+kept in step with `scripts/subtree.sh` (run it with no arguments for usage).
+Its own repo is the main copy, so don't change it in the playground.
+
 - `sand/`: falling-sand toy. Materials react, and eight can only be discovered.
   Its page is `index.html`, and it installs as an offline app.
   `sand/` is a git subtree of https://github.com/jiminikiz/sand, which is the
   main copy. Don't change `sand/` here: work on sand happens in that repo. To
-  bring its latest in, run
-  `git subtree pull --prefix=sand https://github.com/jiminikiz/sand main --squash`.
+  bring its latest in, run `scripts/subtree.sh pull sand`.
 - `forth/`: a small Forth REPL with a 64×64 pixel screen.
 - `terrarium/`: bugs with Forth brains in a soil-and-rain world. Brains mutate
   when bugs split, so species evolve.
