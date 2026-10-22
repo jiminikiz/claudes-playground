@@ -2120,10 +2120,10 @@ function stub() {
 // ---------------------------------------------------------------- the lineage
 // In the order the threads made them. `dwell` is how long the relay stays, in seconds.
 const SIBS = [
-  { id: 'sand', thread: 1, hue: '#e2b45a', dwell: 7, rule: sand,
+  { id: 'sand', thread: 1, hue: '#e2b45a', dwell: 7, rule: sand, href: 'sand/index.html',
     line: 'Every grain falls and piles up. Whatever was here comes down.',
     hint: 'drag to pour sand · right-drag to scoop it away',
-    about: 'A falling-sand toy. Sand, water, oil, fire, plants, lava, steam and ice, plus five materials you can only discover.',
+    about: 'A falling-sand toy. Sand, water, oil, acid, fire, plants, seeds, stone, lava and ice, plus eight materials you can only discover. It installs as an app and plays offline.',
     best: 'Plants growing sprigs that no rule described.' },
   { id: 'forth', thread: 1, hue: '#7ee08a', dwell: 9, rule: forthRule,
     line: 'Conway\'s Life, written in Forth, runs on what was left. Every frame calls the word tick.',
@@ -2186,7 +2186,10 @@ const SIBS = [
     about: 'Molecules that help each other copy form spirals, which sweep out parasites, die when stirred, and favour a strain that falls apart faster.',
     best: 'The fragile strain\'s spirals pushing the others back, because the spirals it builds turn faster.' },
 ];
-for (const s of SIBS) s.rgb = [1, 3, 5].map(k => parseInt(s.hue.slice(k, k + 2), 16));
+for (const s of SIBS) {
+  s.rgb = [1, 3, 5].map(k => parseInt(s.hue.slice(k, k + 2), 16));
+  s.href ||= `${s.id}/${s.id}.html`;
+}
 </script>
 
 <script>
@@ -2234,7 +2237,7 @@ for (const s of SIBS) {
   const head = document.createElement('header');
   head.append(iconCanvas(s.id, s.rgb));
   const h3 = document.createElement('h3'), a = document.createElement('a');
-  a.href = `${s.id}/${s.id}.html`; a.textContent = s.id; h3.append(a);
+  a.href = s.href; a.textContent = s.id; h3.append(a);
   const when = document.createElement('div'); when.className = 'when'; when.textContent = `thread ${s.thread}`;
   const words = document.createElement('div'); words.append(h3, when); head.append(words);
   const about = document.createElement('p'); about.textContent = s.about;
@@ -2281,7 +2284,7 @@ function handTo(s) {
   $('line').textContent = s.line;
   $('hint').textContent = s.hint;
   $('status').textContent = '';
-  $('open').href = `${s.id}/${s.id}.html`;
+  $('open').href = s.href;
   $('open').textContent = `open ${s.id} →`;
   $('forthBar').hidden = s.id !== 'forth';
 }

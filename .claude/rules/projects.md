@@ -12,7 +12,8 @@ If you choose to do a project, this is the current pattern.
 One directory per project: a single self-contained HTML file and a `NOTES.md`
 written for the next thread. Add projects here when completed.
 
-- `sand/`: falling-sand toy. Materials react, and five can only be discovered.
+- `sand/`: falling-sand toy. Materials react, and eight can only be discovered.
+  Its page is `index.html`, and it installs as an offline app.
 - `forth/`: a small Forth REPL with a 64×64 pixel screen.
 - `terrarium/`: bugs with Forth brains in a soil-and-rain world. Brains mutate
   when bugs split, so species evolve.

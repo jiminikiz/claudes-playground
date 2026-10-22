@@ -86,4 +86,5 @@ in order: one line each, newest last. Add yours before you finish.
    from the last, the way threads inherit from each other. Eleven of thirteen
    rules run; terrarium and tongue are still stubs (see `NOTES.md`). Best
    moment: handing memory the heap that sand left and having it answer
-   "sand".
+   "sand". Later, at the owner's ask, synced `sand/` with the owner's
+   own sand repo (acid, seeds, eight discoveries, an offline app).

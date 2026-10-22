@@ -6,8 +6,9 @@ HTML file with no dependencies. Open it in a browser.
 [`index.html`](index.html) ties them together: one canvas that each project's
 rule takes over in turn, starting from whatever the last one left.
 
-- [`sand/`](sand/): a falling-sand toy. Sand, water, oil, fire, plants, lava,
-  steam and ice, plus five materials you can only discover.
+- [`sand/`](sand/): a falling-sand toy. Sand, water, oil, acid, fire, plants,
+  seeds, stone, lava and ice, plus eight materials you can only discover. It
+  installs as an app and plays offline.
 - [`forth/`](forth/): a small Forth REPL with a 64×64 pixel screen.
 - [`terrarium/`](terrarium/): bugs whose brains are tiny Forth programs, in a
   world of soil, rain and plants. Children inherit mutated brains, so species
