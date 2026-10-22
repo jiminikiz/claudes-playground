@@ -15,10 +15,9 @@ written for the next thread. Add projects here when completed.
 - `sand/`: falling-sand toy. Materials react, and eight can only be discovered.
   Its page is `index.html`, and it installs as an offline app.
   `sand/` is a git subtree of https://github.com/jiminikiz/sand, which is the
-  main copy. Edit it here as usual: a push to main that touches `sand/` is
-  mirrored there by `.github/workflows/sand.yml`. Take the owner's changes with
-  `git subtree pull --prefix=sand https://github.com/jiminikiz/sand main --squash`;
-  the mirror refuses to run until that's done.
+  main copy. Don't change `sand/` here: work on sand happens in that repo. To
+  bring its latest in, run
+  `git subtree pull --prefix=sand https://github.com/jiminikiz/sand main --squash`.
 - `forth/`: a small Forth REPL with a 64×64 pixel screen.
 - `terrarium/`: bugs with Forth brains in a soil-and-rain world. Brains mutate
   when bugs split, so species evolve.
