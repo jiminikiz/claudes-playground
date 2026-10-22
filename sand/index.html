@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Falling Sand</title>
-<meta name="description" content="A falling-sand toy. Pour sand, water, oil, acid, fire, lava, ice and seeds, and see what they make.">
+<meta name="description" content="A falling-sand toy. Pour sand, water, oil, acid and lava, light fires, strike lightning, and see what they make.">
 <meta name="theme-color" content="#0b0d12">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png" type="image/png">
@@ -13,14 +13,16 @@
   :root {
     --bg: #0b0d12;
     --nav-bg: rgba(16, 19, 26, 0.9);
+    --sheet-bg: rgba(18, 21, 29, 0.97);
     --panel: #141821;
     --line: #262b38;
     --text: #d9dce4;
     --muted: #7d8496;
     --faint: #4d5363;
     --focus: #e9c46a;
-    --ui: 1;  /* scales the panel and overlays; set by the script */
-    --fit: 1; /* scales the whole app into windows under 640 × 480; set by the script */
+    --rail: 64px; /* the rail's width, before --ui */
+    --ui: 1;      /* scales the rail, sheets and overlays; set by the script */
+    --fit: 1;     /* scales the whole app into windows under 640 × 480; set by the script */
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -36,8 +38,8 @@
     width: 100vw; height: 100vh; min-width: 640px; min-height: 480px; transform-origin: 0 0;
   }
 
-  /* The sandbox runs under notches and camera cutouts; the panel and overlays
-     stay inside the screen's safe area. */
+  /* The sandbox runs under notches and camera cutouts; the rail, sheets and
+     overlays stay inside the screen's safe area. */
   .safe {
     position: absolute; pointer-events: none;
     top: calc(env(safe-area-inset-top, 0px) / var(--fit));
@@ -45,78 +47,137 @@
     bottom: calc(env(safe-area-inset-bottom, 0px) / var(--fit));
     left: calc(env(safe-area-inset-left, 0px) / var(--fit));
   }
-  .safe > nav { pointer-events: auto; }
+  .safe > :is(nav, .sheet) { pointer-events: auto; }
 
-  /* The panel floats over the left of the sandbox, scaled by --ui. */
-  nav {
-    position: absolute; left: 0; top: 0; z-index: 2;
-    width: 236px; height: calc(100% / var(--ui));
-    transform: scale(var(--ui)); transform-origin: 0 0;
-    display: flex; flex-direction: column; gap: 18px; padding: 12px;
-    overflow-y: auto; overscroll-behavior: contain;
-    background: var(--nav-bg); border-right: 1px solid var(--line);
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-    scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; min-height: 44px;
+    display: inline-flex; align-items: center; gap: 10px; cursor: pointer;
+    touch-action: manipulation; text-align: left;
   }
-  .nav-head { display: flex; align-items: center; gap: 8px; }
-  .nav-head h1 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; }
-  #collapse { padding: 3px 9px; font-size: 15px; line-height: 1; }
+  button[aria-pressed="true"] { border-color: var(--focus); }
+  @media (hover: hover) { button:hover { border-color: #3a4152; } }
+  h1 { margin: 0; font-size: 15px; font-weight: 600; }
   h2 {
-    margin: 0 0 6px; display: flex; justify-content: space-between;
+    margin: 0 0 8px; display: flex; justify-content: space-between;
     font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
   }
+  kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  .label { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .label small { color: var(--muted); font-size: 11.5px; line-height: 1.3; }
+  .list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+  .list > * { width: 100%; }
+  .list li { display: flex; align-items: center; gap: 9px; padding: 5px 4px; }
+  .sw {
+    flex: none; width: 14px; height: 14px; border-radius: 3px;
+    background: center / 100% 100% no-repeat; image-rendering: pixelated;
+  }
+
+  /* The rail down the left: menu, the material slots and "all", then erase,
+     brush size and pause. Its buttons are RAIL_BUTTON tall (SHORT_BUTTON on a
+     short rail) with RAIL_GAP between them; the script fits the slots by those. */
+  nav {
+    position: absolute; left: 0; top: 0; z-index: 2;
+    width: var(--rail); height: calc(100% / var(--ui));
+    transform: scale(var(--ui)); transform-origin: 0 0;
+    display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0;
+    background: var(--nav-bg); border-right: 1px solid var(--line);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  }
+  #slots {
+    flex: 1 1 0; min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .rail-btn {
+    flex: none; width: 58px; height: 58px; min-height: 0; padding: 3px 0 0; gap: 2px;
+    flex-direction: column; justify-content: flex-start; align-items: center;
+    border: 0; background: none; color: var(--muted); font-size: 10px; line-height: 1.1;
+  }
+  .rail-btn .face {
+    position: relative; width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--panel) center / 100% 100% no-repeat; border: 2px solid var(--line); image-rendering: pixelated;
+  }
+  .rail-btn .name { max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  nav.is-short .rail-btn { height: 44px; padding-top: 2px; } /* names go, so more slots fit */
+  nav.is-short .rail-btn .name { display: none; }
+  .rail-btn:is([aria-pressed="true"], [aria-expanded="true"]) { color: var(--text); }
+  .rail-btn:is([aria-pressed="true"], [aria-expanded="true"]) .face { border-color: var(--focus); }
+  @media (hover: hover) {
+    .rail-btn:not([aria-pressed="true"], [aria-expanded="true"]):hover .face { border-color: #3a4152; }
+  }
+  .rail-btn svg {
+    width: 22px; height: 22px; fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  }
+  #erase-btn[aria-pressed="true"] .face { background-color: #3b2328; }
+  #all.has-new .face::after {
+    content: ''; position: absolute; top: -5px; right: -5px; width: 12px; height: 12px;
+    border-radius: 50%; background: var(--focus); border: 2px solid var(--bg);
+  }
+  .dot { display: block; border-radius: 50%; background: var(--text); }
+
+  /* Sheets open beside the rail, one at a time. */
+  .sheet {
+    position: absolute; z-index: 3; top: 8px; left: calc(var(--rail) * var(--ui) + 8px);
+    width: min(var(--sheet-w), calc((100% - var(--rail) * var(--ui) - 16px) / var(--ui)));
+    max-height: calc((100% - 16px) / var(--ui));
+    overflow-y: auto; overscroll-behavior: contain; padding: 0 14px 14px;
+    transform: scale(var(--ui)); transform-origin: 0 0;
+    background: var(--sheet-bg); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  }
+  #materials { --sheet-w: 560px; }
+  #menu { --sheet-w: 300px; }
+  #sizes { width: auto; top: auto; bottom: 8px; transform-origin: 0 100%; padding: 8px; }
+  .sheet-head {
+    position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px;
+    padding: 14px 0 12px; background: var(--sheet-bg);
+  }
+  .sheet-head > :first-child { flex: 1; }
+  .close { width: 44px; padding: 0; justify-content: center; font-size: 20px; line-height: 1; }
+  .sheet .group + .group { margin-top: 18px; }
+  #groups + .group { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
+
   .find { position: relative; display: block; }
   .find input {
-    width: 100%; font: inherit; color: var(--text); background: var(--panel);
-    border: 1px solid var(--line); border-radius: 6px; padding: 6px 28px 6px 9px;
+    width: 100%; min-height: 44px; font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 28px 6px 10px;
   }
   .find input:focus { outline: none; border-color: var(--focus); }
   .find input:not(:placeholder-shown) + kbd { display: none; }
-  .find kbd { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); pointer-events: none; }
-  .nomatch { margin: -8px 0 0; color: var(--muted); font-size: 13px; }
+  .find kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+  .nomatch { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
 
-  .list { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
-  button {
-    font: inherit; color: var(--text); background: var(--panel);
-    border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
-    display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
-    touch-action: manipulation; text-align: left;
-  }
-  button:hover { border-color: #3a4152; }
-  button[aria-pressed="true"] { border-color: var(--focus); }
-  .list > * { width: 100%; }
-  .list li { display: flex; align-items: center; gap: 9px; padding: 5px 11px; }
-  .label { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  .label small { color: var(--muted); font-size: 11.5px; line-height: 1.3; }
-  kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
-  .sw { flex: none; width: 14px; height: 14px; border-radius: 3px; }
-  .sw.erase { background: repeating-linear-gradient(45deg, #555 0 2px, transparent 2px 4px); outline: 1px solid #555; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; }
+  .tile { min-height: 54px; padding: 6px 10px 6px 7px; }
+  .tile .sw { width: 38px; height: 38px; border-radius: 7px; }
 
-  .brush { display: flex; align-items: center; gap: 10px; }
-  .brush input { flex: 1; min-width: 0; accent-color: var(--focus); }
-  .brush b { min-width: 2ch; text-align: right; font-weight: 500; }
-  .ui-size { display: flex; align-items: center; gap: 6px; }
-  .ui-size > span { flex: 1; }
-  .ui-size button { padding: 3px 10px; justify-content: center; }
-  #ui-value { min-width: 6ch; }
-
+  :is(#found, #achievements) { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0 12px; }
   #found li.locked { color: var(--faint); }
   #found li.locked .sw { outline: 1px dashed var(--faint); }
   #found li .name-hint, #found li .how-hint { display: none; }
   #found li.is-hinted .name-hint, #found li.is-hinted .how-hint { display: inline; }
   #found li.is-hinted :is(.name-q, .how-q) { display: none; }
-  #found li.new { animation: found 1.6s ease-out; border-radius: 6px; }
-  @keyframes found { from { background: #e9c46a33; } to { background: transparent; } }
-  #found-count.is-complete { color: var(--focus); }
+  #achievements li { color: var(--muted); }
+  #achievements li.earned { color: var(--text); }
+  .mark { flex: none; width: 14px; text-align: center; font-size: 14px; line-height: 1; color: var(--faint); }
+  .mark::before { content: '☆'; }
+  .earned .mark { color: var(--focus); }
+  .earned .mark::before { content: '★'; }
+  :is(#found, #achievements) li.new, .tile.new { animation: found 1.6s ease-out; border-radius: 8px; }
+  @keyframes found { from { background: #e9c46a33; } } /* back to the item's own background */
+  :is(#found-count, #achieved-count).is-complete { color: var(--focus); }
 
-  .help { color: var(--faint); font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
-  footer { margin-top: auto; color: var(--faint); font-size: 11.5px; }
-
-  .is-collapsed nav { width: 60px; padding: 12px 8px; }
-  .is-collapsed :is(.nav-head h1, .find, .nomatch, h2, .label, nav kbd, footer) { display: none; }
-  .is-collapsed .group:not(.materials) { display: none; }
-  .is-collapsed .nav-head { justify-content: center; }
-  .is-collapsed .list button { justify-content: center; padding: 9px 0; }
+  #menu .list { margin-bottom: 14px; }
+  .ui-size { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
+  .ui-size > span { flex: 1; }
+  .ui-size button { padding: 0 12px; justify-content: center; }
+  #ui-value { min-width: 7ch; }
+  .help { color: var(--faint); font-size: 12px; display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; }
+  footer { color: var(--faint); font-size: 11.5px; }
+  .sizes { display: flex; gap: 6px; }
+  .sizes button { width: 52px; height: 52px; padding: 0; justify-content: center; }
 
   .stage { position: absolute; inset: 0; }
   canvas {
@@ -134,19 +195,20 @@
   .hud b { color: var(--text); font-weight: 500; }
   .hud #state:empty { display: none; }
   .toast {
-    top: 10px; left: 50%; font-size: 13px; padding: 5px 12px;
+    z-index: 4; top: 10px; left: 50%; font-size: 13px; padding: 5px 12px;
+    width: max-content; max-width: calc(90% / var(--ui)); text-align: center;
     opacity: 0; transform: translate(-50%, -6px) scale(var(--ui)); transform-origin: 50% 0;
     transition: opacity 0.25s, transform 0.25s;
   }
   .toast.is-shown { opacity: 1; transform: translate(-50%, 0) scale(var(--ui)); }
+  .toast button { margin-left: 10px; padding: 2px 14px; font-size: 13px; }
+  .toast.is-shown button { pointer-events: auto; }
 
   .touch-only { display: none; }
   @media (hover: none) and (pointer: coarse) {
-    button { min-height: 40px; }
     kbd, .fine-only { display: none; }
     .touch-only { display: block; }
-    .find input { padding-right: 9px; }
-    .brush input { height: 28px; }
+    .find input { padding-right: 10px; }
   }
 </style>
 </head>
@@ -155,75 +217,72 @@
   <div class="stage"><canvas id="c"></canvas></div>
 
   <div class="safe">
-  <nav id="nav" aria-label="Tools">
-    <div class="nav-head">
-      <h1>Falling Sand</h1>
-      <button id="collapse" aria-controls="nav" aria-expanded="true">«</button>
+  <nav id="rail" aria-label="Tools">
+    <button type="button" class="rail-btn" id="menu-btn" aria-controls="menu" aria-expanded="false" title="menu">
+      <span class="face"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 7h14M5 12h14M5 17h14"/></svg></span><span class="name">menu</span>
+    </button>
+    <div id="slots">
+      <button type="button" class="rail-btn" id="all" aria-controls="materials" aria-expanded="false" title="all materials (/)">
+        <span class="face"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg></span><span class="name">all</span>
+      </button>
     </div>
-    <label class="find">
-      <input id="search" type="search" placeholder="search" aria-label="Search the panel" autocomplete="off" spellcheck="false">
-      <kbd class="fine-only">/</kbd>
-    </label>
+    <button type="button" class="rail-btn" id="erase-btn" aria-pressed="false" title="erase (e)">
+      <span class="face"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14.5 4.5l5 5-9 9h-5l-2.5-2.5a1.5 1.5 0 0 1 0-2z"/><path d="M8.5 10.5l5 5"/><path d="M13 18.5h7"/></svg></span><span class="name">erase</span>
+    </button>
+    <button type="button" class="rail-btn" id="size-btn" aria-controls="sizes" aria-expanded="false" title="brush size ([ ])">
+      <span class="face"><span class="dot" id="size-dot"></span></span><span class="name">size</span>
+    </button>
+    <button type="button" class="rail-btn" id="pause" title="pause (space)">
+      <span class="face"></span><span class="name"></span>
+    </button>
+  </nav>
+
+  <div class="sheet" id="materials" role="dialog" aria-label="Materials" hidden>
+    <div class="sheet-head">
+      <label class="find">
+        <input id="search" type="search" placeholder="search" aria-label="Search materials and discoveries" autocomplete="off" spellcheck="false">
+        <kbd class="fine-only">/</kbd>
+      </label>
+      <button type="button" class="close" aria-label="close">×</button>
+    </div>
     <p class="nomatch" id="nomatch" hidden>nothing matches</p>
-
-    <section class="group materials">
-      <h2>materials</h2>
-      <div class="list" id="tools">
-        <button data-mat="sand" data-find><span class="sw"></span><span class="label">sand <small>powder, sinks in liquid</small></span><kbd>1</kbd></button>
-        <button data-mat="water" data-find><span class="sw"></span><span class="label">water <small>douses fire, quenches lava</small></span><kbd>2</kbd></button>
-        <button data-mat="oil" data-find><span class="sw"></span><span class="label">oil <small>floats on water, burns slow</small></span><kbd>3</kbd></button>
-        <button data-mat="acid" data-find><span class="sw"></span><span class="label">acid <small>eats all but glass</small></span><kbd>a</kbd></button>
-        <button data-mat="fire" data-find><span class="sw"></span><span class="label">fire <small>burns fuel, throws embers</small></span><kbd>4</kbd></button>
-        <button data-mat="plant" data-find><span class="sw"></span><span class="label">plant <small>drinks water and grows</small></span><kbd>5</kbd></button>
-        <button data-mat="seed" data-find><span class="sw"></span><span class="label">seed <small>sprouts on wet sand</small></span><kbd>6</kbd></button>
-        <button data-mat="stone" data-find><span class="sw"></span><span class="label">stone <small>stays put</small></span><kbd>7</kbd></button>
-        <button data-mat="lava" data-find><span class="sw"></span><span class="label">lava <small>lights fuel, melts sand</small></span><kbd>8</kbd></button>
-        <button data-mat="ice" data-find><span class="sw"></span><span class="label">ice <small>freezes water, fears heat</small></span><kbd>9</kbd></button>
-        <button data-mat="empty" data-find="erase empty rub out 0"><span class="sw erase"></span><span class="label">erase <small>rub things out</small></span><kbd>0</kbd></button>
-      </div>
-    </section>
-
-    <section class="group">
-      <h2>brush</h2>
-      <label class="brush" data-find="brush size"><input id="brush" type="range" min="0" max="30" aria-label="brush size"><b id="size"></b></label>
-    </section>
-
-    <section class="group">
-      <h2>view</h2>
-      <div class="ui-size" data-find="ui size scale zoom bigger smaller text">
-        <span>ui size</span>
-        <button id="ui-down" aria-label="smaller panel" title="smaller (-)">−</button>
-        <button id="ui-value" title="back to automatic"></button>
-        <button id="ui-up" aria-label="bigger panel" title="bigger (=)">+</button>
-      </div>
-    </section>
-
-    <section class="group">
-      <h2>world</h2>
-      <div class="list">
-        <button id="pause" data-find="pause play space"><span class="label">pause</span><kbd>space</kbd></button>
-        <button id="scene" data-find="scene reset r"><span class="label">scene</span><kbd>r</kbd></button>
-        <button id="clear" data-find="clear empty c"><span class="label">clear</span><kbd>c</kbd></button>
-      </div>
-    </section>
-
+    <div id="groups"></div>
     <section class="group">
       <h2>discoveries <span id="found-count"></span></h2>
       <ul class="list" id="found"></ul>
     </section>
-
-    <section class="group help">
-      <span class="fine-only">drag to pour · right-drag to erase</span>
-      <span class="fine-only">scroll or [ ] for brush size</span>
-      <span class="fine-only">/ to search · n to fold this panel</span>
-      <span class="fine-only">- = for ui size</span>
-      <span class="touch-only">drag to pour · pour with several fingers at once · pick erase to rub out</span>
+    <section class="group">
+      <h2>achievements <span id="achieved-count"></span></h2>
+      <ul class="list" id="achievements"></ul>
     </section>
+  </div>
 
-    <footer>Made by Claude in October 2026, in a thread given over just for fun.</footer>
-  </nav>
+  <div class="sheet" id="menu" role="dialog" aria-label="Menu" hidden>
+    <div class="sheet-head"><h1>Falling Sand</h1><button type="button" class="close" aria-label="close">×</button></div>
+    <div class="list">
+      <button type="button" id="scene"><span class="label">new scene <small>a different one each time</small></span><kbd>r</kbd></button>
+      <button type="button" id="clear"><span class="label">clear <small>empty the whole world</small></span><kbd>c</kbd></button>
+    </div>
+    <div class="ui-size">
+      <span>ui size</span>
+      <button type="button" id="ui-down" aria-label="smaller" title="smaller (-)">−</button>
+      <button type="button" id="ui-value" title="back to automatic"></button>
+      <button type="button" id="ui-up" aria-label="bigger" title="bigger (=)">+</button>
+    </div>
+    <div class="help">
+      <span class="fine-only">drag to pour · right-drag to erase</span>
+      <span class="fine-only">1–9 a slot · / any material · e erase</span>
+      <span class="fine-only">scroll or [ ] brush size · - = ui size</span>
+      <span class="fine-only">space pause · ctrl or ⌘ z undoes a clear</span>
+      <span class="touch-only">drag to pour, with several fingers if you like</span>
+      <span class="touch-only">all has every material; what you pick stays on the rail</span>
+    </div>
+    <footer>Made with ❤️ by Claude</footer>
+  </div>
 
-  <div class="hud"><span>under brush: <b id="under">—</b></span><span id="state"></span></div>
+  <div class="sheet" id="sizes" role="dialog" aria-label="Brush size" hidden><div class="sizes" id="size-options"></div></div>
+
+  <div class="hud" id="hud" hidden><span id="under-wrap" hidden>under brush: <b id="under"></b></span><span id="state"></span></div>
   <div class="toast" id="toast" role="status"></div>
   </div>
 </div>
@@ -252,7 +311,7 @@ addEventListener('resize', fitApp);
 // MAX_CELLS. shapeGrid sets everything below.
 const MAX_CELLS = 54000;
 let W = 0, H = 0, N = 0;
-let type, life, clock, col, vel; // per cell; vel is an ember's heading, -1 left or 1 right
+let type, life, clock, col, aux; // per cell; see "materials" for what life and aux hold
 let img, buf;
 
 /**
@@ -265,19 +324,20 @@ function shapeGrid() {
   const cellPx = Math.max(3, Math.sqrt((sw * sh) / MAX_CELLS));
   const w = Math.round(sw / cellPx), h = Math.round(sh / cellPx);
   if (w === W && h === H) return;
-  const old = [type, life, clock, col, vel], oldW = W, oldH = H;
+  const old = [type, life, clock, col, aux], oldW = W, oldH = H;
   W = w; H = h; N = W * H;
   type = new Uint8Array(N);
   life = new Uint8Array(N);
   clock = new Uint8Array(N);
   col = new Uint32Array(N).fill(BG);
-  vel = new Int8Array(N);
-  const now = [type, life, clock, col, vel];
+  aux = new Int8Array(N);
+  const now = [type, life, clock, col, aux];
   const keepW = Math.min(W, oldW), keepH = Math.min(H, oldH);
   for (let y = 1; y <= keepH; y++) {
     const from = (oldH - y) * oldW, to = (H - y) * W;
     for (let a = 0; a < now.length; a++) now[a].set(old[a].subarray(from, from + keepW), to);
   }
+  blasts.length = 0; // their cells moved
   cv.width = W; cv.height = H;
   img = ctx.createImageData(W, H);
   buf = new Uint32Array(img.data.buffer);
@@ -286,68 +346,109 @@ function shapeGrid() {
 // --- materials -------------------------------------------------------------
 
 const E = 0, STONE = 1, SAND = 2, WATER = 3, OIL = 4, FIRE = 5, PLANT = 6, SMOKE = 7, STEAM = 8, LAVA = 9,
-  GLASS = 10, OBSIDIAN = 11, EMBER = 12, ICE = 13, SNOW = 14, SEED = 15, FLOWER = 16, ACID = 17, FUME = 18;
+  GLASS = 10, OBSIDIAN = 11, EMBER = 12, ICE = 13, SNOW = 14, SEED = 15, FLOWER = 16, ACID = 17, FUME = 18,
+  RAIN = 19, ASH = 20, ACID_RAIN = 21, SALT = 22, BRINE = 23, WOOD = 24, PUMICE = 25, METAL = 26, RUST = 27,
+  HYDROGEN = 28, GUNPOWDER = 29, LIGHTNING = 30, CLOUD = 31, CLONE = 32, DRAIN = 33, BEE = 34, HONEY = 35;
 
-// `how` is the recipe a discovery shows once it has been made.
+// One entry per material, in id order, giving only what applies:
+//   dens      a mover sinks through anything movable that's lighter
+//   fixed     holds its place; nothing sinks through it
+//   airy      open air to what flies or falls: empty, the gases, cloud
+//   act       its update each tick; a material without one is skipped
+//   life      what `life` starts at: a number, or a [min, max) range
+//   burn      chance per tick that a burning neighbour lights it
+//   flame     how long it burns, [min, max) ticks; ash: chance it leaves ash
+//   blast     goes off with this radius instead of burning
+//   hold      chance it stands through a blast
+//   etch      chance per bite that acid eats it
+//   hot       melts ice and snow, boils acid off
+//   condense  what a fading gas turns into, half the time
+//   how       the recipe; a material with one is a discovery
+//
+// `life` means something per material: how long fire, smoke, steam, fume,
+// hydrogen and lightning last; plant sap; ice's cold; acid's bites; an
+// ember's flight; a cloud's water; a bee's pollen; what a clone pours; what a
+// flower has given. `aux` is an ember's or a bee's heading, or for fire, 1
+// if it leaves ash.
 const MAT = [
-  { name: 'empty', dens: 1, colors: ['#0d0f14'] },
-  { name: 'stone', dens: 9, colors: ['#5b5e66', '#63666f', '#55585f', '#6a6d75'] },
-  { name: 'sand',  dens: 5, colors: ['#e2c27d', '#d8b56b', '#eccd8a', '#cfa95e'] },
-  { name: 'water', dens: 3, colors: ['#2f6fd6', '#3477e0', '#2b68cc'] },
-  { name: 'oil',   dens: 2, colors: ['#5e4226', '#684a2b', '#533a21'] },
-  { name: 'fire',  dens: 0, colors: ['#ff6a00'] },
-  { name: 'plant', dens: 9, colors: ['#3f9b3a', '#48a843', '#378a33', '#52b54b'] },
-  { name: 'smoke', dens: 0, how: 'fire dying out, or doused', colors: ['#8a8f9a'] }, // drawn from smokePal
-  { name: 'steam', dens: 0, how: 'water on fire, lava or embers', colors: ['#c9d6e8', '#d5e0ee', '#bccbe0'] },
-  { name: 'lava',  dens: 4, colors: ['#ff5a1f', '#ff7b26', '#e8401a', '#ff9a3c'] },
-  { name: 'glass', dens: 9, how: 'lava melting sand', colors: ['#9fd3dc', '#aedbe3', '#93c8d2', '#b9e3ea', '#a3d6df', '#e8fbff'] },
-  { name: 'obsidian', dens: 9, how: 'water quenching lava', colors: ['#2a2238', '#31283f', '#372d47', '#2d2540', '#3c3150', '#7d6a9c'] },
-  { name: 'ember', dens: 0, how: 'thrown by fire with fuel under it', colors: ['#ffb43a'] },
-  { name: 'ice',   dens: 9, colors: ['#c3e2fb', '#b6d9f6', '#cfe8fc', '#bcdcf8'] },
-  { name: 'snow',  dens: 2, how: 'steam touching ice', colors: ['#eef3fa', '#e2eaf5', '#f7f9fc'] },
-  { name: 'seed',  dens: 4, colors: ['#8c8a3e', '#7d7b35', '#9a9848'] },
-  { name: 'flower', dens: 9, how: 'a seed on wet sand, given time', colors: ['#7fb3ff', '#b48ef0', '#f4f1ea', '#ff8a65', '#f6a5c0'] },
-  { name: 'acid',  dens: 3, colors: ['#a6e22e', '#9bd427', '#b3ec3f'] },
-  { name: 'fume',  dens: 0, how: 'acid eating something', colors: ['#6f8b34', '#7c9a3c', '#88a845'] },
+  { name: 'empty', dens: 1, airy: true, colors: ['#0d0f14'] },
+  { name: 'stone', dens: 9, fixed: true, hold: 0.6, etch: 0.08, colors: ['#5b5e66', '#63666f', '#55585f', '#6a6d75'] },
+  { name: 'sand', dens: 5, act: powder, etch: 0.3, colors: ['#e2c27d', '#d8b56b', '#eccd8a', '#cfa95e'] },
+  { name: 'water', dens: 3, act: water, colors: ['#2f6fd6', '#3477e0', '#2b68cc'] },
+  { name: 'oil', dens: 2, act: (i, x, y, t) => liquid(i, x, y, t, 3), burn: 0.06, flame: [60, 140],
+    colors: ['#5e4226', '#684a2b', '#533a21'] },
+  { name: 'fire', dens: 0, fixed: true, act: fire, life: [30, 80], hot: true, colors: ['#ff6a00'] }, // drawn from firePal
+  { name: 'plant', dens: 9, fixed: true, act: plant, burn: 0.03, ash: 0.3, etch: 0.5, how: 'a seed on wet sand',
+    colors: ['#3f9b3a', '#48a843', '#378a33', '#52b54b'] },
+  { name: 'smoke', dens: 0, airy: true, act: smoke, life: [60, 140], how: 'fire dying out, or doused',
+    colors: ['#8a8f9a'] }, // drawn from smokePal
+  { name: 'steam', dens: 0, airy: true, act: steam, life: [80, 200], condense: RAIN, how: 'water on fire, lava or embers',
+    colors: ['#c9d6e8', '#d5e0ee', '#bccbe0'] },
+  { name: 'lava', dens: 4, act: lava, hot: true, colors: ['#ff5a1f', '#ff7b26', '#e8401a', '#ff9a3c'] },
+  { name: 'glass', dens: 9, fixed: true, hold: 0.15, how: 'lava or lightning melting sand',
+    colors: ['#9fd3dc', '#aedbe3', '#93c8d2', '#b9e3ea', '#a3d6df', '#e8fbff'] },
+  { name: 'obsidian', dens: 9, fixed: true, hold: 0.9, etch: 0.03, how: 'water quenching lava',
+    colors: ['#3c3150', '#31283f', '#372d47', '#2d2540', '#2a2238', '#7d6a9c'] },
+  { name: 'ember', dens: 0, act: ember, hot: true, how: 'thrown by fire on fuel, or a blast',
+    colors: ['#ffb43a'] }, // drawn from emberPal
+  { name: 'ice', dens: 9, fixed: true, act: ice, life: 24, hold: 0.3, etch: 0.4,
+    colors: ['#c3e2fb', '#b6d9f6', '#cfe8fc', '#bcdcf8'] },
+  { name: 'snow', dens: 2, act: snow, etch: 0.4, how: 'steam touching ice', colors: ['#eef3fa', '#e2eaf5', '#f7f9fc'] },
+  { name: 'seed', dens: 4, act: seed, burn: 0.04, ash: 0.3, etch: 0.5, colors: ['#8c8a3e', '#7d7b35', '#9a9848'] },
+  { name: 'flower', dens: 9, fixed: true, act: flower, burn: 0.05, ash: 0.3, etch: 0.5, how: 'a sprouted seed, given time',
+    colors: ['#7fb3ff', '#b48ef0', '#f4f1ea', '#ff8a65', '#f6a5c0'] },
+  { name: 'acid', dens: 3, act: acid, life: 10, colors: ['#a6e22e', '#9bd427', '#b3ec3f'] },
+  { name: 'fume', dens: 0, airy: true, act: gas, life: [40, 100], condense: ACID_RAIN, how: 'acid eating something',
+    colors: ['#6f8b34', '#7c9a3c', '#88a845'] },
+  { name: 'rain', dens: 3, act: rain, how: 'steam cooling off', colors: ['#6f9ce6', '#7ea8ec', '#8cb4f0'] },
+  { name: 'ash', dens: 4.5, act: powder, etch: 0.4, how: 'wood or plants burnt down',
+    colors: ['#6b6763', '#77736e', '#5f5b57', '#837e78'] },
+  { name: 'acid rain', dens: 3, act: rain, how: 'fume cooling off', colors: ['#c4f25a', '#b8e84a', '#d0f870'] },
+  { name: 'salt', dens: 5, act: salt, etch: 0.3, colors: ['#f2f2ee', '#e6e6e0', '#fafaf6', '#dcdcd6'] },
+  { name: 'brine', dens: 3.5, act: water, how: 'salt in water', colors: ['#2b86a8', '#3191b3', '#27799b'] },
+  { name: 'wood', dens: 9, fixed: true, burn: 0.02, flame: [80, 160], ash: 0.6, hold: 0.4, etch: 0.3,
+    colors: ['#7a5230', '#6e4a2b', '#865b36', '#5f3f24'] },
+  { name: 'pumice', dens: 2.5, act: powder, etch: 0.15, how: 'lava frothing on ice',
+    colors: ['#b9b2a6', '#c4bdb1', '#aea79b', '#cfc8bc'] },
+  { name: 'metal', dens: 9, fixed: true, act: metal, hold: 0.9, etch: 0.15,
+    colors: ['#8d96a3', '#9aa3b0', '#7f8894', '#a7b0bc'] },
+  { name: 'rust', dens: 5, act: powder, etch: 0.5, how: 'metal left in water',
+    colors: ['#9c4a1f', '#b0572a', '#8a3f19', '#c06a35'] },
+  { name: 'hydrogen', dens: 0, airy: true, act: gas, life: [150, 250], burn: 0.6, blast: 2, how: 'acid eating metal',
+    colors: ['#1d2633', '#222c3a', '#334359'] },
+  { name: 'gunpowder', dens: 5, act: powder, burn: 0.5, blast: 5, etch: 0.3,
+    colors: ['#3a3a3f', '#2f2f33', '#46464b', '#55555a'] },
+  { name: 'lightning', dens: 0, fixed: true, act: flash, life: [6, 14], hot: true,
+    colors: ['#fffbe6', '#eef4ff', '#fff2b8'] },
+  { name: 'cloud', dens: 0, airy: true, act: cloud, life: [2, 6], how: 'steam piling up against the sky',
+    colors: ['#c9cfd8'] }, // drawn from cloudPal
+  { name: 'clone', dens: 9, fixed: true, act: clone, hold: 1, colors: ['#c04fd8'] },
+  { name: 'drain', dens: 9, fixed: true, act: drain, hold: 1, colors: ['#3d2356', '#2a173c', '#331d49'] },
+  { name: 'bee', dens: 0, act: bee, burn: 0.3, etch: 0.6, how: 'a patch of flowers',
+    colors: ['#f5c518', '#2a2210'] }, // stripes as it flies
+  { name: 'honey', dens: 3.8, act: honey, etch: 0.3, how: 'bees carrying pollen',
+    colors: ['#e09b1a', '#d68f12', '#eaa82a', '#c98410'] },
 ];
 
 const rgb = (r, g, b) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
 const hex = h => rgb(parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16));
 const shades = MAT.map(m => Uint32Array.from(m.colors, hex));
-const dens = Int8Array.from(MAT, m => m.dens);
+const dens = Float32Array.from(MAT, m => m.dens);
+const movable = Uint8Array.from(MAT, m => (m.fixed ? 0 : 1));
+const airy = Uint8Array.from(MAT, m => (m.airy ? 1 : 0));
+const burn = Float32Array.from(MAT, m => m.burn ?? 0);
+const etch = Float32Array.from(MAT, m => m.etch ?? 0);
+const hot = Uint8Array.from(MAT, m => (m.hot ? 1 : 0));
+const acts = MAT.map(m => m.act ?? null);
 const BG = shades[E][0];
 const FLOWER_HEART = hex('#ffd34d');
-
-// These hold their place; everything else can be pushed aside by something denser.
-const movable = new Uint8Array(MAT.length).fill(1);
-for (const t of [STONE, PLANT, GLASS, OBSIDIAN, ICE, FLOWER]) movable[t] = 0;
-
-// Nothing to simulate: the step loop skips these.
-const inert = new Uint8Array(MAT.length);
-for (const t of [E, STONE, GLASS, OBSIDIAN, FLOWER]) inert[t] = 1;
-
-// Chance per tick that a burning neighbour catches this material.
-const burn = new Float32Array(MAT.length);
-burn[OIL] = 0.06;
-burn[PLANT] = 0.03;
-burn[SEED] = 0.04;
-burn[FLOWER] = 0.05;
-
-// Chance per bite that acid eats a material. Glass is left out on purpose:
-// it's the jar you keep acid in.
-const etch = new Float32Array(MAT.length);
-etch[SAND] = 0.3;
-etch[STONE] = 0.08;
-etch[OBSIDIAN] = 0.03;
-etch[PLANT] = etch[SEED] = etch[FLOWER] = 0.5;
-etch[ICE] = etch[SNOW] = 0.4;
-
-const hot = new Uint8Array(MAT.length);
-hot[FIRE] = hot[EMBER] = hot[LAVA] = 1;
+const SOOT = hex('#2f2b27');
 
 // Materials you can only get by making them, roughly easiest first. The
-// discoveries list tracks these, saved per browser.
-const SECRETS = [SMOKE, STEAM, GLASS, OBSIDIAN, EMBER, SNOW, FUME, FLOWER];
+// discoveries list tracks these, saved per browser. Those in TOOLS join the
+// materials sheet once found.
+const SECRETS = [SMOKE, STEAM, RAIN, ASH, PLANT, GLASS, BRINE, OBSIDIAN, EMBER, SNOW, FUME, FLOWER, PUMICE,
+  RUST, HYDROGEN, ACID_RAIN, CLOUD, BEE, HONEY];
 const secret = new Uint8Array(MAT.length);
 for (const t of SECRETS) secret[t] = 1;
 
@@ -356,7 +457,9 @@ let found = new Set();
 try { found = new Set(JSON.parse(localStorage.getItem(FOUND_KEY) || '[]')); } catch {}
 
 const firePal = new Uint32Array(256);
+const emberPal = new Uint32Array(256);
 const smokePal = new Uint32Array(256);
+const cloudPal = new Uint32Array(256);
 for (let l = 0; l < 256; l++) {
   const t = Math.min(1, l / 70);
   firePal[l] = rgb(
@@ -366,6 +469,22 @@ for (let l = 0; l < 256; l++) {
   );
   const s = Math.min(1, l / 100);
   smokePal[l] = rgb(Math.round(13 + 77 * s), Math.round(15 + 79 * s), Math.round(20 + 84 * s));
+  const w = Math.min(1, l / 12); // a cloud darkens with the water it holds
+  cloudPal[l] = rgb(Math.round(214 - 120 * w), Math.round(220 - 118 * w), Math.round(228 - 112 * w));
+}
+for (let l = 0; l < 256; l++) emberPal[l] = firePal[Math.min(255, l + 20)];
+
+// These are drawn by `life` from a palette instead of from `col`.
+const pal = MAT.map(() => null);
+pal[FIRE] = firePal;
+pal[EMBER] = emberPal;
+pal[SMOKE] = smokePal;
+pal[CLOUD] = cloudPal;
+
+/** Blends packed colour a toward b by f. */
+function mix(a, b, f) {
+  const ch = s => Math.round(((a >>> s) & 255) * (1 - f) + ((b >>> s) & 255) * f);
+  return rgb(ch(0), ch(8), ch(16));
 }
 
 /** A pastel from the colour wheel, h in [0, 1). HSL with s 0.75, l 0.65. */
@@ -380,22 +499,41 @@ function rainbow(h) {
 
 // --- simulation ------------------------------------------------------------
 
-let rngState = 0x9e3779b9;
+let rngState = ((Math.random() * 2 ** 32) >>> 0) || 1; // fresh each load; xorshift needs nonzero
 function rnd() {
   rngState ^= rngState << 13; rngState ^= rngState >>> 17; rngState ^= rngState << 5;
   return (rngState >>> 0) / 4294967296;
 }
 const dir = () => (rnd() < 0.5 ? -1 : 1);
+const between = (a, b) => a + rnd() * (b - a);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const isWater = u => u === WATER || u === BRINE;
 
 let tick = 1;
+let age = 0;        // ticks run since load; unlike `tick`, it never wraps
+let drift = 1;      // which way clouds drift; it turns now and then
+const blasts = [];  // [cell, radius] pairs, set off once the tick's scan is done
 
-function set(i, t, l = 0) {
+// What reactions have made since load, and a few feats, for the achievements
+// to read. Painting and scenes only place cells, so they count for nothing.
+const made = new Uint32Array(MAT.length);
+const feats = { blastBurst: 0, stoneBlasted: 0, selfStrikes: 0, longestRod: 0, swallowed: 0 };
+const recentBlasts = []; // the ages of the last second's blasts
+
+/** Puts a cell down without discovering it: a scene, painting, or more of something already there. */
+function place(i, t, l = 0) {
   type[i] = t;
   life[i] = l;
   const s = shades[t];
   col[i] = s[(rnd() * s.length) | 0];
-  vel[i] = 0;
+  aux[i] = 0;
   clock[i] = tick;
+}
+
+/** Every reaction makes cells through here, so making a secret discovers it. */
+function set(i, t, l = 0) {
+  place(i, t, l);
+  made[t]++;
   if (secret[t] === 1 && !found.has(MAT[t].name)) discover(t);
 }
 
@@ -403,20 +541,14 @@ function swap(i, j) {
   const t = type[i]; type[i] = type[j]; type[j] = t;
   const l = life[i]; life[i] = life[j]; life[j] = l;
   const c = col[i]; col[i] = col[j]; col[j] = c;
-  const v = vel[i]; vel[i] = vel[j]; vel[j] = v;
+  const a = aux[i]; aux[i] = aux[j]; aux[j] = a;
   clock[i] = clock[j] = tick;
 }
 
 function startLife(t) {
-  switch (t) {
-    case FIRE: return 30 + rnd() * 50;
-    case SMOKE: return 60 + rnd() * 80;
-    case STEAM: return 80 + rnd() * 120;
-    case ICE: return 24;
-    case ACID: return 10;
-    case FUME: return 40 + rnd() * 60;
-    default: return 0;
-  }
+  const range = MAT[t].life ?? 0;
+  if (typeof range === 'number') return range;
+  return between(range[0], range[1]);
 }
 
 /** The one density rule: a mover displaces anything movable that is lighter. */
@@ -435,9 +567,79 @@ function nb(i, x, y, k) {
   }
 }
 
+/** Calls f(i, dx, dy) for each grid cell within r of (cx, cy). */
+function disc(cx, cy, r, f) {
+  for (let dy = -r; dy <= r; dy++) {
+    const y = cy + dy;
+    if (y < 0 || y >= H) continue;
+    for (let dx = -r; dx <= r; dx++) {
+      const x = cx + dx;
+      const isOn = x >= 0 && x < W && dx * dx + dy * dy <= r * r;
+      if (isOn) f(y * W + x, dx, dy);
+    }
+  }
+}
+
+/** Sets fuel alight. Fuel with a blast is lit and goes off at the end of the tick. */
 function ignite(n) {
-  const isOil = type[n] === OIL;
-  set(n, FIRE, isOil ? 60 + rnd() * 80 : 30 + rnd() * 40);
+  const m = MAT[type[n]];
+  if (m.blast !== undefined) {
+    set(n, FIRE, between(4, 12));
+    blasts.push(n, m.blast);
+    return;
+  }
+  const [lo, hi] = m.flame ?? [30, 70];
+  const leavesAsh = rnd() < (m.ash ?? 0);
+  set(n, FIRE, between(lo, hi));
+  aux[n] = leavesAsh ? 1 : 0;
+}
+
+/**
+ * Blows a round hole of radius r at cell c. Loose cells are flung out past
+ * the rim, fixed ones may hold, fuel catches, and the hole is left in flames
+ * that throw embers. Anything in it with a blast of its own is only lit, and
+ * goes off from there.
+ */
+function blast(c, r) {
+  const cx = c % W, cy = (c - cx) / W;
+  disc(cx, cy, r, (i, dx, dy) => {
+    const u = type[i], m = MAT[u];
+    const isFlung = movable[u] === 1 && airy[u] === 0;
+    if (m.blast !== undefined) set(i, FIRE, between(4, 12));
+    else if (rnd() < (m.hold ?? 0)) return;
+    else if (burn[u] > 0) ignite(i);
+    else if (isFlung) fling(i, cx, cy, dx, dy, r);
+    else {
+      if (u === STONE) feats.stoneBlasted++;
+      set(i, E);
+    }
+    if (type[i] === E && rnd() < 0.6) set(i, FIRE, between(6, 20));
+  });
+  for (let s = 0; s < r; s++) spark(cx, cy, r);
+}
+
+/** Throws cell i away from (cx, cy) to the first open cell past r along its line, or loses it. */
+function fling(i, cx, cy, dx, dy, r) {
+  const isCentre = dx === 0 && dy === 0;
+  const a = (isCentre ? rnd() * 2 * Math.PI : Math.atan2(dy, dx)) + (rnd() - 0.5) * 0.6;
+  for (let s = r + 1 + rnd() * r; s <= 3 * r; s++) {
+    const x = Math.round(cx + Math.cos(a) * s), y = Math.round(cy + Math.sin(a) * s);
+    if (x < 0 || x >= W || y < 0 || y >= H) break;
+    const j = y * W + x;
+    if (airy[type[j]] === 1) { swap(i, j); return; }
+  }
+  set(i, E);
+}
+
+/** An ember flying off the rim of a blast. */
+function spark(cx, cy, r) {
+  const a = rnd() * 2 * Math.PI;
+  const x = Math.round(cx + Math.cos(a) * (r + 1)), y = Math.round(cy + Math.sin(a) * (r + 1));
+  if (x < 0 || x >= W || y < 0 || y >= H) return;
+  const j = y * W + x;
+  if (type[j] !== E) return;
+  set(j, EMBER, between(80, 110));
+  aux[j] = x < cx ? -1 : 1;
 }
 
 function powder(i, x, y, t) {
@@ -475,37 +677,51 @@ function liquid(i, x, y, t, reach) {
   if (to >= 0) swap(i, to);
 }
 
-function water(i, x, y) {
+// Water douses fire and quenches lava to obsidian, going up as steam as it
+// does. Brine does the same and leaves its salt behind.
+function water(i, x, y, t) {
   for (let k = 0; k < 4; k++) {
     const n = nb(i, x, y, k);
     if (n < 0) continue;
     const u = type[n];
     if (u === FIRE) {
       set(n, SMOKE, startLife(SMOKE));
-      if (rnd() < 0.3) { set(i, STEAM, startLife(STEAM)); return; }
+      if (rnd() < 0.3) { boil(i, y, t); return; }
     } else if (u === LAVA) {
       set(n, OBSIDIAN);
-      set(i, STEAM, startLife(STEAM));
+      boil(i, y, t);
       return;
     }
   }
-  liquid(i, x, y, WATER, 5);
+  liquid(i, x, y, t, 5);
 }
 
-function lava(i, x, y) {
+function boil(i, y, t) {
+  if (t === WATER) { set(i, STEAM, startLife(STEAM)); return; }
+  set(i, SALT);
+  const isRoomAbove = y > 0 && type[i - W] === E;
+  if (isRoomAbove) set(i - W, STEAM, startLife(STEAM));
+}
+
+function lava(i, x, y, t) {
   for (let k = 0; k < 4; k++) {
     const n = nb(i, x, y, k);
     if (n < 0) continue;
     const u = type[n];
+    const isFrozen = u === ICE || u === SNOW;
     if (burn[u] > 0 && rnd() < 0.5) ignite(n);
     else if (u === SAND && rnd() < 0.02) {
       set(n, GLASS);
       // Melting sand costs heat; enough of it crusts the lava over.
       if (rnd() < 0.15) { set(i, STONE); return; }
+    } else if (isFrozen && rnd() < 0.06) {
+      set(i, PUMICE); // froths up as it sets, light enough to float
+      set(n, WATER);
+      return;
     } else if (u === E && k === 0 && rnd() < 0.003) set(n, SMOKE, startLife(SMOKE));
   }
   if (rnd() < 0.08) col[i] = shades[LAVA][(rnd() * 4) | 0];
-  if (rnd() < 0.5) liquid(i, x, y, LAVA, 1);
+  if (rnd() < 0.5) liquid(i, x, y, t, 1);
 }
 
 const EMBER_RATE = 0.03;
@@ -523,11 +739,7 @@ function fire(i, x, y) {
     }
   }
   const l = life[i] - (hasFuel ? 1 : 3);
-  if (l <= 0) {
-    if (rnd() < 0.25) set(i, SMOKE, startLife(SMOKE));
-    else set(i, E);
-    return;
-  }
+  if (l <= 0) { burnOut(i); return; }
   life[i] = l;
   if (y === 0) return;
   const d = ((rnd() * 3) | 0) - 1;
@@ -541,13 +753,21 @@ function fire(i, x, y) {
     const r = rnd();
     if (r < EMBER_RATE) {
       set(j, EMBER, 70 + rnd() * 40);
-      vel[j] = dir();
+      aux[j] = dir();
     } else if (r < 0.35) {
       set(j, FIRE, 8 + rnd() * 18);
     }
   } else if (rnd() < 0.4) {
     swap(i, j);
   }
+}
+
+/** Spent fire leaves ash where its fuel does, and otherwise now and then smoke. */
+function burnOut(i) {
+  const leavesAsh = aux[i] === 1;
+  if (leavesAsh) set(i, ASH);
+  else if (rnd() < 0.25) set(i, SMOKE, startLife(SMOKE));
+  else set(i, E);
 }
 
 // An ember flies in an arc and lights the first fuel it touches. Water hisses
@@ -557,7 +777,7 @@ function ember(i, x, y) {
     const n = nb(i, x, y, k);
     if (n < 0) continue;
     const u = type[n];
-    if (u === WATER) { set(i, STEAM, startLife(STEAM)); return; }
+    if (isWater(u)) { set(i, STEAM, startLife(STEAM)); return; }
     if (burn[u] > 0 && rnd() < burn[u] * 5) {
       ignite(n);
       set(i, E);
@@ -570,16 +790,14 @@ function ember(i, x, y) {
   const isClimbing = l > EMBER_PEAK;
   const dy = isClimbing ? -1 : 1;
   const ny = y + dy;
-  const nx = x + vel[i];
+  const nx = x + aux[i];
   const isMovingSideways = rnd() < 0.6 && nx >= 0 && nx < W;
   const isMovingVertically = rnd() < (isClimbing ? 0.5 : 0.8) && ny >= 0 && ny < H;
   const tx = isMovingSideways ? nx : x;
   const ty = isMovingVertically ? ny : y;
   const j = ty * W + tx;
   if (j === i) return;
-  const u = type[j];
-  const isOpen = u === E || u === SMOKE || u === STEAM || u === FUME;
-  if (isOpen) swap(i, j);
+  if (airy[type[j]] === 1) swap(i, j);
   else life[i] = Math.max(1, l - 4); // stuck embers fade fast
 }
 
@@ -598,59 +816,95 @@ function ice(i, x, y) {
   if (n >= 0 && type[n] === WATER) set(n, ICE, life[i] - 1);
 }
 
-function snow(i, x, y) {
+function snow(i, x, y, t) {
   for (let k = 0; k < 4; k++) {
     const n = nb(i, x, y, k);
     if (n >= 0 && hot[type[n]] === 1 && rnd() < 0.2) { set(i, WATER); return; }
   }
-  if (rnd() < 0.5) powder(i, x, y, SNOW);
+  if (rnd() < 0.5) powder(i, x, y, t);
 }
 
-// Acid takes a bite of one neighbour a tick, spending one of the bites it
-// carries in `life`; some of what it eats goes up as fume. Water dilutes it,
-// heat boils it off.
-function acid(i, x, y) {
+// Salt dissolves into water as brine. It melts ice and snow into brine too,
+// a few cells for each grain. Brine never freezes.
+function salt(i, x, y, t) {
   const n = nb(i, x, y, (rnd() * 4) | 0);
   if (n >= 0) {
     const u = type[n];
-    if (u === WATER && rnd() < 0.05) { set(i, WATER); return; }
+    const isFrozen = u === ICE || u === SNOW;
+    if (u === WATER && rnd() < 0.1) { set(n, BRINE); set(i, E); return; }
+    if (isFrozen && rnd() < 0.05) {
+      set(n, BRINE);
+      if (rnd() < 0.3) { set(i, E); return; }
+    }
+  }
+  powder(i, x, y, t);
+}
+
+// Acid takes a bite of one neighbour a tick, spending one of the bites it
+// carries in `life`. Water dilutes it, heat boils it off.
+function acid(i, x, y, t) {
+  const n = nb(i, x, y, (rnd() * 4) | 0);
+  if (n >= 0) {
+    const u = type[n];
+    if (isWater(u) && rnd() < 0.05) { set(i, WATER); return; }
     if (hot[u] === 1 && rnd() < 0.3) { set(i, FUME, startLife(FUME)); return; }
     if (rnd() < etch[u]) {
-      if (rnd() < 0.25) set(n, FUME, startLife(FUME));
-      else set(n, E);
+      dissolve(n, u);
       const bites = life[i] - 1;
       if (bites <= 0) { set(i, E); return; }
       life[i] = bites;
     }
   }
-  liquid(i, x, y, ACID, 3);
+  liquid(i, x, y, t, 3);
+}
+
+/** What acid eats is mostly gone; a quarter goes up as fume, and metal, half the time, as hydrogen. */
+function dissolve(n, u) {
+  if (u === METAL && rnd() < 0.5) set(n, HYDROGEN, startLife(HYDROGEN));
+  else if (rnd() < 0.25) set(n, FUME, startLife(FUME));
+  else set(n, E);
+}
+
+// Metal touching water rusts, slowly, and faster in brine.
+function metal(i, x, y) {
+  if (rnd() > 0.02) return;
+  const n = nb(i, x, y, (rnd() * 4) | 0);
+  if (n < 0) return;
+  const u = type[n];
+  const isRusting = (u === WATER && rnd() < 0.03) || (u === BRINE && rnd() < 0.1);
+  if (isRusting) set(i, RUST);
 }
 
 // Plant sap at or above STEM marks a seedling's stem. Drinking water only
 // ever gives 0–6, so the two never mix.
 const STEM = 8;
 
-// A seed falls like sand. Resting on sand with water touching it, it sprouts
-// a stem with 6–18 cells of growth in it.
-function seed(i, x, y) {
-  const isOnSand = y < H - 1 && type[i + W] === SAND;
-  if (isOnSand && rnd() < 0.02) {
+// A seed falls like sand. Resting on sand or ash with water touching it, it
+// sprouts a stem with 6–18 cells of growth in it; ash feeds it to 12–30.
+function seed(i, x, y, t) {
+  const below = y < H - 1 ? type[i + W] : E;
+  const isOnSoil = below === SAND || below === ASH;
+  if (isOnSoil && rnd() < 0.02) {
     for (let k = 0; k < 4; k++) {
       const n = nb(i, x, y, k);
-      if (n >= 0 && type[n] === WATER) { set(i, PLANT, STEM + 6 + rnd() * 12); return; }
+      if (n < 0 || type[n] !== WATER) continue;
+      const growth = below === ASH ? between(12, 30) : between(6, 18);
+      set(i, PLANT, STEM + growth);
+      return;
     }
   }
-  powder(i, x, y, SEED);
+  powder(i, x, y, t);
 }
 
 // A plant drinks neighbouring water and turns it into more plant. Fresh growth
 // carries a little stored water in `life`, which it spends sprouting upward.
 // A stem climbs the same way until its sap is down to STEM, then blooms.
+// Growth is placed, not set: plant is discovered only by sprouting a seed.
 function plant(i, x, y) {
   if (rnd() > 0.1) return;
   const n = nb(i, x, y, (rnd() * 4) | 0);
   if (n >= 0 && type[n] === WATER) {
-    set(n, PLANT, (rnd() * 7) | 0);
+    place(n, PLANT, (rnd() * 7) | 0);
     return;
   }
   const sap = life[i];
@@ -662,7 +916,7 @@ function plant(i, x, y) {
   if (type[j] !== E) return;
   life[i] = 0;
   if (sap === STEM) bloom(j, nx, y - 1);
-  else set(j, PLANT, sap - 1);
+  else place(j, PLANT, sap - 1);
 }
 
 /** A yellow heart with one petal colour on each open side. */
@@ -679,12 +933,98 @@ function bloom(i, x, y) {
   }
 }
 
+// What a flower cell has given, as bits of its `life`: a petal with nothing
+// under it drops one seed, and a heart amid a patch of flowers lets out one
+// bee.
+const DROPPED = 1, HATCHED = 2;
+
+function flower(i, x, y) {
+  if (rnd() > 0.01) return;
+  const isHeart = col[i] === FLOWER_HEART;
+  if (isHeart) {
+    const canHatch = (life[i] & HATCHED) === 0 && rnd() < 0.03 && isPatch(x, y);
+    if (canHatch) hatch(i, x, y);
+    return;
+  }
+  const canDrop = (life[i] & DROPPED) === 0 && y < H - 1 && type[i + W] === E && rnd() < 0.05;
+  if (!canDrop) return;
+  set(i + W, SEED);
+  life[i] |= DROPPED;
+}
+
+/** Whether three more flower hearts are within 10 cells of (x, y). */
+function isPatch(x, y) {
+  let hearts = 0;
+  disc(x, y, 10, j => { if (type[j] === FLOWER && col[j] === FLOWER_HEART) hearts++; });
+  return hearts >= 4; // this one and three more
+}
+
+function hatch(i, x, y) {
+  let spot = -1;
+  disc(x, y, 2, j => { if (spot < 0 && type[j] === E) spot = j; });
+  if (spot < 0) return;
+  set(spot, BEE);
+  aux[spot] = (rnd() * 8) | 0;
+  life[i] |= HATCHED;
+}
+
+// Bee headings as [dx, dy]; a bee keeps the index in `aux`.
+const HEADINGS = [[1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1], [1, 1]];
+const POLLEN_PER_DROP = 12;
+
+// A bee flies on its heading, veering now and then, and turns toward flowers
+// it spots. At a flower it lingers, gathering pollen in `life`; with enough,
+// it lets a drop of honey fall.
+function bee(i, x, y) {
+  col[i] = shades[BEE][((tick >> 2) + x) & 1];
+  if (rnd() < 0.4) return;
+  let isAtFlower = false;
+  for (let k = 0; k < 4; k++) {
+    const n = nb(i, x, y, k);
+    if (n >= 0 && type[n] === FLOWER) isAtFlower = true;
+  }
+  if (isAtFlower) {
+    life[i] = Math.min(255, life[i] + 1);
+    if (rnd() < 0.7) return;
+  }
+  const canDrip = life[i] >= POLLEN_PER_DROP && y < H - 1 && type[i + W] === E;
+  if (canDrip && rnd() < 0.05) {
+    set(i + W, HONEY);
+    life[i] -= POLLEN_PER_DROP;
+  }
+  if (rnd() < 0.1) seek(i, x, y);
+  else if (rnd() < 0.15) aux[i] = (aux[i] + (rnd() < 0.5 ? 1 : 7)) & 7;
+  const [dx, dy] = HEADINGS[aux[i]];
+  const nx = x + dx, ny = y + dy;
+  const isOpen = nx >= 0 && nx < W && ny >= 0 && ny < H && airy[type[ny * W + nx]] === 1;
+  if (isOpen) swap(i, ny * W + nx);
+  else aux[i] = (rnd() * 8) | 0;
+}
+
+/** A bee glances about; if it sees a flower, it heads that way. */
+function seek(i, x, y) {
+  for (let s = 0; s < 6; s++) {
+    const fx = x + ((rnd() * 33) | 0) - 16, fy = y + ((rnd() * 33) | 0) - 16;
+    const isFlower = fx >= 0 && fx < W && fy >= 0 && fy < H && type[fy * W + fx] === FLOWER;
+    if (!isFlower) continue;
+    const sx = Math.sign(fx - x), sy = Math.sign(fy - y);
+    aux[i] = HEADINGS.findIndex(([dx, dy]) => dx === sx && dy === sy);
+    return;
+  }
+}
+
+// Honey falls like any liquid but spreads slowly.
+function honey(i, x, y, t) {
+  const isFalling = y < H - 1 && type[i + W] === E;
+  if (isFalling || rnd() < 0.2) liquid(i, x, y, t, 1);
+}
+
 function gas(i, x, y, t) {
   const l = life[i] - 1;
   if (l <= 0) {
-    const isRain = t === STEAM && rnd() < 0.5;
-    if (isRain) set(i, WATER);
-    else set(i, E);
+    const into = MAT[t].condense;
+    const isCondensing = into !== undefined && rnd() < 0.5;
+    set(i, isCondensing ? into : E);
     return;
   }
   life[i] = l;
@@ -694,7 +1034,8 @@ function gas(i, x, y, t) {
     if (nx >= 0 && nx < W) {
       const j = i - W + d;
       const u = type[j];
-      const isBubble = (u === WATER || u === OIL) && rnd() < 0.3;
+      const isThin = u === WATER || u === OIL || u === BRINE || u === ACID;
+      const isBubble = isThin && rnd() < 0.3;
       if (u === E || isBubble) { swap(i, j); return; }
     }
   }
@@ -702,9 +1043,190 @@ function gas(i, x, y, t) {
   if (x + d >= 0 && x + d < W && type[i + d] === E) swap(i, i + d);
 }
 
+// Smoke soots the stone and glass it brushes past, a little darker each time.
+function smoke(i, x, y, t) {
+  if (rnd() < 0.02) {
+    const n = nb(i, x, y, (rnd() * 4) | 0);
+    const isSootable = n >= 0 && (type[n] === STONE || type[n] === GLASS);
+    if (isSootable) col[n] = mix(col[n], SOOT, 0.1);
+  }
+  gas(i, x, y, t);
+}
+
+// Steam at the top of the sky, or under a cloud, gathers into cloud.
+function steam(i, x, y, t) {
+  const isUnderCloud = y > 0 && type[i - W] === CLOUD;
+  const isGathering = (y === 0 && rnd() < 0.02) || (isUnderCloud && rnd() < 0.05);
+  if (isGathering) { set(i, CLOUD, 1); return; }
+  gas(i, x, y, t);
+}
+
+// A drop falls straight through air, gas and cloud, and on whatever it lands
+// on turns to water, or acid rain to weak acid, whose own reactions take it
+// from there.
+function rain(i, x, y, t) {
+  if (y === H - 1) { land(i, t); return; }
+  const u = type[i + W];
+  const isDrop = u === RAIN || u === ACID_RAIN;
+  if (airy[u] === 1) swap(i, i + W);
+  else if (!isDrop) land(i, t); // behind another drop, it waits
+}
+
+function land(i, t) {
+  if (t === ACID_RAIN) set(i, ACID, 3);
+  else set(i, WATER);
+}
+
+const CLOUD_FULL = 20;
+
+// A cloud drifts with the breeze, holding water in `life`. The water settles
+// to its base, which darkens, and rains out from there; the top thins away.
+// The wetter a cell, the likelier it is to strike.
+function cloud(i, x, y) {
+  const below = y < H - 1 ? type[i + W] : -1;
+  const canSettle = below === CLOUD && life[i + W] < CLOUD_FULL && rnd() < 0.01;
+  const canRain = below === E && rnd() < 0.012;
+  if (canSettle) life[i + W]++;
+  else if (canRain) set(i + W, RAIN);
+  if (canSettle || canRain) {
+    if (life[i] <= 1) { set(i, E); return; }
+    life[i]--;
+  }
+  if (rnd() < life[i] * 0.000002) {
+    feats.selfStrikes++;
+    strike(x, y + 1);
+  }
+  const nx = x + drift;
+  const canDrift = nx >= 0 && nx < W && type[i + drift] === E && rnd() < 0.01;
+  if (canDrift) swap(i, i + drift);
+}
+
+function flash(i) {
+  if (life[i] <= 1) set(i, E);
+  else life[i]--;
+}
+
+// A clone takes on the first thing to touch it, keeping it in `life`, and
+// passes it to the clone cells beside it; from then on it pours it out.
+function clone(i, x, y) {
+  const n = nb(i, x, y, (rnd() * 4) | 0);
+  if (n < 0) return;
+  const u = type[n], into = life[i];
+  if (into === E) {
+    const canTake = u !== E && u !== CLONE && u !== DRAIN && u !== LIGHTNING;
+    if (canTake) pour(i, u);
+    return;
+  }
+  const isBlankClone = u === CLONE && life[n] === E;
+  if (isBlankClone) pour(n, into);
+  else if (u === E && rnd() < 0.5) place(n, into, startLife(into));
+}
+
+function pour(i, t) {
+  life[i] = t;
+  col[i] = mix(shades[CLONE][0], shades[t][0], 0.6);
+}
+
+// A drain swallows anything loose that touches it.
+function drain(i, x, y) {
+  for (let k = 0; k < 4; k++) {
+    const n = nb(i, x, y, k);
+    const isLoose = n >= 0 && type[n] !== E && movable[type[n]] === 1;
+    if (!isLoose) continue;
+    set(n, E);
+    feats.swallowed++;
+  }
+}
+
+const BOLT_SWAY = 5; // how far a bolt wanders from where it was aimed
+
+/**
+ * A bolt from row y down through air, gas and cloud, wandering near column
+ * x0, into the first thing under it.
+ */
+function strike(x0, y = 0) {
+  const lo = Math.max(0, x0 - BOLT_SWAY), hi = Math.min(W - 1, x0 + BOLT_SWAY);
+  const glow = startLife(LIGHTNING); // the whole bolt goes out at once
+  let x = clamp(x0, lo, hi);
+  for (; y < H; y++) {
+    if (rnd() < 0.4) x = clamp(x + dir(), lo, hi);
+    const i = y * W + x, u = type[i];
+    const isSolid = airy[u] === 0 && u !== LIGHTNING;
+    if (isSolid) { hit(i, x, y); return; }
+    if (u === E) set(i, LIGHTNING, glow);
+    if (rnd() < 0.03) fork(x, y, glow);
+  }
+}
+
+/** A short branch off a bolt, down and to one side, that hits nothing. */
+function fork(x, y, glow) {
+  const d = dir(), len = between(4, 12);
+  for (let s = 0; s < len; s++) {
+    if (rnd() < 0.7) x += d;
+    y++;
+    if (x < 0 || x >= W || y >= H) return;
+    const i = y * W + x;
+    if (type[i] !== E) return;
+    set(i, LIGHTNING, glow);
+  }
+}
+
+/** A bolt fuses sand to glass, runs through metal, lights fuel, boils water and thaws ice. */
+function hit(i, x, y) {
+  const u = type[i];
+  const isFrozen = u === ICE || u === SNOW;
+  if (u === SAND) fuse(x, y);
+  else if (u === METAL) conduct(i);
+  else if (burn[u] > 0) ignite(i);
+  else if (isWater(u)) {
+    disc(x, y, 2, j => {
+      const isBoiling = isWater(type[j]) && rnd() < 0.5;
+      if (isBoiling) set(j, STEAM, startLife(STEAM));
+    });
+  } else if (isFrozen) set(i, WATER);
+}
+
+/** A crooked tube of glass a few cells down into the sand: a fulgurite. */
+function fuse(x, y) {
+  const len = between(3, 11);
+  for (let s = 0; s < len && y < H; s++, y++) {
+    const i = y * W + x;
+    if (type[i] !== SAND) return;
+    set(i, GLASS);
+    if (rnd() < 0.4) x = clamp(x + dir(), 0, W - 1);
+  }
+}
+
+/**
+ * Runs a bolt through the metal joined to cell `start`, up to 4000 cells of
+ * it: fuel touching it catches, water touching it boils, and sparks jump off.
+ */
+function conduct(start) {
+  const seen = new Uint8Array(N);
+  const queue = [start];
+  seen[start] = 1;
+  let lit = 0;
+  for (let q = 0; q < queue.length && q < 4000; q++) {
+    const c = queue[q], x = c % W, y = (c - x) / W;
+    for (let k = 0; k < 4; k++) {
+      const n = nb(c, x, y, k);
+      if (n < 0 || seen[n] === 1) continue;
+      seen[n] = 1;
+      const u = type[n];
+      if (u === METAL) queue.push(n);
+      else if (burn[u] > 0) { ignite(n); lit++; }
+      else if (isWater(u) && rnd() < 0.3) set(n, STEAM, startLife(STEAM));
+      else if (u === E && rnd() < 0.08) set(n, LIGHTNING, startLife(LIGHTNING));
+    }
+  }
+  if (lit > 0) feats.longestRod = Math.max(feats.longestRod, queue.length);
+}
+
 /** Scans bottom-up, alternating sides each tick. `clock[i] === tick` marks a cell already moved. */
 function step() {
   tick = tick === 255 ? 1 : tick + 1;
+  age++;
+  if (rnd() < 0.0005) drift = -drift;
   const isLeftFirst = (tick & 1) === 1;
   for (let y = H - 1; y >= 0; y--) {
     const row = y * W;
@@ -712,82 +1234,276 @@ function step() {
       const x = isLeftFirst ? k : W - 1 - k;
       const i = row + x;
       const t = type[i];
-      if (inert[t] === 1 || clock[i] === tick) continue;
-      switch (t) {
-        case SAND: powder(i, x, y, t); break;
-        case WATER: water(i, x, y); break;
-        case OIL: liquid(i, x, y, OIL, 3); break;
-        case LAVA: lava(i, x, y); break;
-        case FIRE: fire(i, x, y); break;
-        case EMBER: ember(i, x, y); break;
-        case ICE: ice(i, x, y); break;
-        case SNOW: snow(i, x, y); break;
-        case SEED: seed(i, x, y); break;
-        case PLANT: plant(i, x, y); break;
-        case ACID: acid(i, x, y); break;
-        case SMOKE:
-        case STEAM:
-        case FUME: gas(i, x, y, t); break;
-      }
+      const act = acts[t];
+      if (act === null || clock[i] === tick) continue;
+      act(i, x, y, t);
     }
   }
+  // Blasts wait for the scan to finish, so none moves a cell out from under the one acting.
+  while (blasts.length > 0) {
+    const r = blasts.pop(), c = blasts.pop();
+    blast(c, r);
+    recentBlasts.push(age);
+  }
+  while (recentBlasts.length > 0 && recentBlasts[0] <= age - 60) recentBlasts.shift();
+  feats.blastBurst = Math.max(feats.blastBurst, recentBlasts.length);
 }
 
-// --- panel -----------------------------------------------------------------
+// --- rail and sheets -------------------------------------------------------
 
+// Every material you can paint, as the materials sheet lists them:
+// [material, group, what it does, share of the brush it fills]. Loose things
+// fill 30% unless given, fixed ones all.
 const TOOLS = [
-  [SAND, '1'], [WATER, '2'], [OIL, '3'], [ACID, 'a'], [FIRE, '4'], [PLANT, '5'],
-  [SEED, '6'], [STONE, '7'], [LAVA, '8'], [ICE, '9'], [E, '0'],
+  [SAND, 'powders', 'powder, sinks in liquid'],
+  [SALT, 'powders', 'melts ice, salts water'],
+  [SEED, 'powders', 'sprouts on wet sand or ash'],
+  [ASH, 'powders', 'light powder, feeds seeds'],
+  [PUMICE, 'powders', 'stone that floats'],
+  [SNOW, 'powders', 'floats on water, thaws'],
+  [GUNPOWDER, 'powders', 'goes off when lit'],
+  [WATER, 'liquids', 'douses fire, quenches lava'],
+  [OIL, 'liquids', 'floats on water, burns slow'],
+  [ACID, 'liquids', 'eats all but glass'],
+  [LAVA, 'liquids', 'lights fuel, melts sand'],
+  [HONEY, 'liquids', 'thick, slow and sweet'],
+  [FIRE, 'fire and sky', 'burns fuel, throws embers', 0.3],
+  [LIGHTNING, 'fire and sky', 'strikes where you point'],
+  [CLOUD, 'fire and sky', 'rains, now and then strikes', 1],
+  [STONE, 'solids', 'stays put'],
+  [WOOD, 'solids', 'burns long, leaves ash'],
+  [METAL, 'solids', 'carries lightning, rusts'],
+  [ICE, 'solids', 'freezes water, fears heat'],
+  [GLASS, 'solids', 'holds acid, stays put'],
+  [OBSIDIAN, 'solids', 'stone that acid barely eats'],
+  [PLANT, 'living', 'drinks water and grows'],
+  [BEE, 'living', 'flies to flowers, makes honey', 0.03],
+  [CLONE, 'prizes', 'pours out what touches it'],
+  [DRAIN, 'prizes', 'swallows what touches it'],
 ];
-const LOOSE = new Set([SAND, WATER, OIL, ACID, FIRE, LAVA, SEED]);
+const fills = new Map(TOOLS.map(([t, , , fill]) => [t, fill ?? (movable[t] === 1 ? 0.3 : 1)]));
+
+// Clone and drain are the prize for making every discovery.
+const PRIZES = [CLONE, DRAIN];
+const isAllFound = () => SECRETS.every(t => found.has(MAT[t].name));
+
+/** A discovery stays out of the sheet and off the rail until it's made; the prizes until all are. */
+function isLocked(t) {
+  if (PRIZES.includes(t)) return !isAllFound();
+  return secret[t] === 1 && !found.has(MAT[t].name);
+}
 
 let mat = SAND;
+let isErasing = false;
 let brush = 4;
 let paused = false;
 let isRainbow = false;
 const pointers = new Map(); // pointerId -> { x, y, lx, ly, erase }; one per finger
 let hover = null;            // { x, y } for the ring and the readout
 
-const navEl = document.getElementById('nav');
+const railEl = document.getElementById('rail');
+const slotsEl = document.getElementById('slots');
+const allEl = document.getElementById('all');
+const eraseEl = document.getElementById('erase-btn');
+const sizeEl = document.getElementById('size-btn');
+const pauseEl = document.getElementById('pause');
+const materialsEl = document.getElementById('materials');
+const menuEl = document.getElementById('menu');
+const sizesEl = document.getElementById('sizes');
 const searchEl = document.getElementById('search');
-const collapseEl = document.getElementById('collapse');
 const toastEl = document.getElementById('toast');
+const hudEl = document.getElementById('hud');
+const underWrapEl = document.getElementById('under-wrap');
+const stateEl = document.getElementById('state');
 
-const buttons = new Map();
-for (const [t, key] of TOOLS) {
-  const b = document.querySelector(`#tools [data-mat="${MAT[t].name}"]`);
-  if (t !== E) b.querySelector('.sw').style.background = MAT[t].colors[0];
-  b.title = `${t === E ? 'erase' : MAT[t].name} (${key})`;
-  b.addEventListener('click', () => pick(t));
-  buttons.set(t, b);
+/** A 6 × 6 pixel picture of a material in its own shades, as a CSS background image. */
+function swatch(t) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 6;
+  const g = c.getContext('2d');
+  const im = g.createImageData(6, 6);
+  const px = new Uint32Array(im.data.buffer);
+  const s = shades[t], p = pal[t];
+  const zigzag = [3, 2, 3, 4, 3, 2]; // lightning's column in each row
+  for (let i = 0; i < 36; i++) {
+    const x = i % 6, y = (i - x) / 6, r = Math.random();
+    if (t === BEE) px[i] = s[y & 1];
+    else if (t === LIGHTNING) px[i] = x === zigzag[y] ? s[0] : BG;
+    else if (t === CLOUD) px[i] = p[1 + ((r * 6) | 0)];
+    else if (p !== null) px[i] = p[20 + ((r * 60) | 0)];
+    else px[i] = s[(r * s.length) | 0];
+  }
+  g.putImageData(im, 0, 0);
+  return `url(${c.toDataURL()})`;
 }
-for (const el of navEl.querySelectorAll('[data-find=""]')) el.dataset.find = el.textContent.toLowerCase();
+const swatches = MAT.map((_, t) => swatch(t));
+
+// The rail's slots hold the materials picked last, each keeping its place: a
+// pick that isn't on the rail takes the slot used longest ago. Kept in
+// `sand.slots`.
+const SLOTS_KEY = 'sand.slots';
+const SLOT_MAX = 9; // keys 1–9
+const RAIL_BUTTON = 58, SHORT_BUTTON = 44, RAIL_GAP = 4; // as in the CSS for .rail-btn and #slots
+const SHORT_RAIL = 640; // a rail shorter than this drops its names
+const STARTING_SLOTS = [SAND, WATER, FIRE, STONE, LAVA, SEED, OIL, ACID, ICE];
+let slots = [];
+let slotUsed = []; // when each slot was last picked, by useClock
+let useClock = 0;
+let slotCount = SLOT_MAX; // how many fit on the rail
+try { slots = JSON.parse(localStorage.getItem(SLOTS_KEY) || '[]').map(n => MAT.findIndex(m => m.name === n)); } catch {}
+
+/** Drops slots that can't be painted (locked, unknown or doubled) and tops them up from the starting set. */
+function settleSlots() {
+  slots = slots.filter((t, k) => fills.has(t) && !isLocked(t) && slots.indexOf(t) === k).slice(0, SLOT_MAX);
+  for (const t of STARTING_SLOTS) if (slots.length < SLOT_MAX && !slots.includes(t)) slots.push(t);
+  slotUsed = slots.map((_, k) => SLOT_MAX - k);
+  useClock = SLOT_MAX;
+}
+
+function saveSlots() {
+  try { localStorage.setItem(SLOTS_KEY, JSON.stringify(slots.map(t => MAT[t].name))); } catch {}
+}
+
+const slotEls = [];
+for (let k = 0; k < SLOT_MAX; k++) {
+  const b = Object.assign(document.createElement('button'), { type: 'button' });
+  b.className = 'rail-btn';
+  b.innerHTML = '<span class="face"></span><span class="name"></span>';
+  b.addEventListener('click', () => { pick(slots[k]); closeSheet(); });
+  allEl.before(b);
+  slotEls.push(b);
+}
+
+/** Puts t on the rail, in the slot used longest ago if it isn't showing already. */
+function seat(t) {
+  let k = slots.indexOf(t);
+  const isShown = k >= 0 && k < slotCount;
+  if (!isShown) {
+    let oldest = 0;
+    for (let j = 1; j < slotCount; j++) if (slotUsed[j] < slotUsed[oldest]) oldest = j;
+    if (k >= 0) slots[k] = slots[oldest]; // up from a slot that doesn't fit
+    slots[oldest] = t;
+    k = oldest;
+  }
+  slotUsed[k] = ++useClock;
+}
+
+/** Shows as many slots as fit between the menu and erase, keeping the picked material among them. */
+function fitSlots() {
+  const isShort = railEl.clientHeight < SHORT_RAIL;
+  railEl.classList.toggle('is-short', isShort);
+  const button = isShort ? SHORT_BUTTON : RAIL_BUTTON;
+  const fit = Math.floor((slotsEl.clientHeight - button) / (button + RAIL_GAP));
+  slotCount = clamp(fit, 1, SLOT_MAX);
+  if (slots.indexOf(mat) >= slotCount) seat(mat);
+  drawRail();
+}
+
+function drawRail() {
+  slotEls.forEach((b, k) => {
+    const t = slots[k];
+    b.hidden = k >= slotCount;
+    b.querySelector('.face').style.backgroundImage = swatches[t];
+    b.querySelector('.name').textContent = MAT[t].name;
+    b.title = `${MAT[t].name} (${k + 1})`;
+    b.setAttribute('aria-pressed', String(t === mat && !isErasing));
+  });
+  eraseEl.setAttribute('aria-pressed', String(isErasing));
+  for (const [t, b] of tiles) b.setAttribute('aria-pressed', String(t === mat && !isErasing));
+}
 
 function pick(t) {
   mat = t;
-  for (const [k, b] of buttons) b.setAttribute('aria-pressed', String(k === t));
+  isErasing = false;
+  seat(t);
+  saveSlots();
+  drawRail();
 }
 
+function setErasing(on) {
+  isErasing = on;
+  drawRail();
+}
+
+// The materials sheet: a tile for each paintable material, in its group, then
+// the discoveries.
+const tiles = new Map();
+for (const [t, group, tip] of TOOLS) {
+  let tilesEl = document.querySelector(`#groups [data-group="${group}"] .tiles`);
+  if (!tilesEl) {
+    const section = document.createElement('section');
+    section.className = 'group';
+    section.dataset.group = group;
+    section.innerHTML = '<h2></h2><div class="tiles"></div>';
+    section.querySelector('h2').textContent = group;
+    document.getElementById('groups').append(section);
+    tilesEl = section.querySelector('.tiles');
+  }
+  const b = Object.assign(document.createElement('button'), { type: 'button' });
+  b.className = 'tile';
+  b.innerHTML = '<span class="sw"></span><span class="label"><small></small></span>';
+  b.querySelector('.sw').style.backgroundImage = swatches[t];
+  b.querySelector('.label').prepend(MAT[t].name);
+  b.querySelector('small').textContent = tip;
+  b.dataset.find = `${MAT[t].name} ${tip}`;
+  b.addEventListener('click', () => { pick(t); closeSheet(); });
+  tilesEl.append(b);
+  tiles.set(t, b);
+}
+
+// One sheet opens at a time beside the rail. A tap on the sandbox, Escape or
+// its close button shuts it, and that tap pours nothing.
+let sheet = null;
+const openerOf = el => document.querySelector(`[aria-controls="${el.id}"]`);
+function openSheet(el) {
+  closeSheet();
+  sheet = el;
+  el.hidden = false;
+  openerOf(el).setAttribute('aria-expanded', 'true');
+  if (el === materialsEl) allEl.classList.remove('has-new');
+}
+function closeSheet() {
+  if (sheet === null) return;
+  sheet.hidden = true;
+  openerOf(sheet).setAttribute('aria-expanded', 'false');
+  if (sheet === materialsEl) clearSearch();
+  sheet = null;
+}
+function toggleSheet(el) {
+  if (sheet === el) closeSheet();
+  else openSheet(el);
+}
+for (const b of document.querySelectorAll('.sheet .close')) b.addEventListener('click', closeSheet);
+document.getElementById('menu-btn').addEventListener('click', () => toggleSheet(menuEl));
+allEl.addEventListener('click', () => toggleSheet(materialsEl));
+sizeEl.addEventListener('click', () => toggleSheet(sizesEl));
+eraseEl.addEventListener('click', () => { setErasing(!isErasing); closeSheet(); });
+pauseEl.addEventListener('click', () => { setPaused(!paused); closeSheet(); });
+
 /**
- * Shows only the panel items that match the search. A discovery not yet made
- * stays hidden unless searched by its exact name, which reveals its recipe.
+ * Shows only the sheet's items that match the search, and only the groups
+ * with something in them. A discovery not yet made stays hidden unless
+ * searched by its exact name, which reveals its recipe; a locked material
+ * stays hidden either way.
  */
 function filter() {
   const q = searchEl.value.trim().toLowerCase();
   const isSearching = q !== '';
   let total = 0;
-  for (const group of navEl.querySelectorAll('.group')) {
+  for (const group of materialsEl.querySelectorAll('.group')) {
     let shown = 0;
     for (const item of group.querySelectorAll('[data-find], [data-secret]')) {
-      const isLocked = item.dataset.secret !== undefined;
+      const isSecret = item.dataset.secret !== undefined;
+      const isLockedTile = !isSecret && item.classList.contains('locked');
       let isMatch = true;
-      if (isSearching && isLocked) isMatch = q === item.dataset.secret;
+      if (isLockedTile) isMatch = false;
+      else if (isSearching && isSecret) isMatch = q === item.dataset.secret;
       else if (isSearching) isMatch = item.dataset.find.includes(q);
       item.hidden = !isMatch;
-      if (isLocked) item.classList.toggle('is-hinted', isSearching && isMatch);
+      if (isSecret) item.classList.toggle('is-hinted', isSearching && isMatch);
       if (isMatch) shown++;
     }
-    group.hidden = isSearching && shown === 0;
+    group.hidden = shown === 0;
     total += shown;
   }
   document.getElementById('nomatch').hidden = !isSearching || total > 0;
@@ -801,41 +1517,23 @@ function clearSearch() {
 searchEl.addEventListener('input', filter);
 searchEl.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
-    const first = [...navEl.querySelectorAll('.group button')].find(b => !b.hidden);
+    const first = [...materialsEl.querySelectorAll('.tile')].find(b => !b.hidden && b.offsetParent !== null);
     if (first) first.click();
+    return;
   }
-  const isDone = e.key === 'Enter' || e.key === 'Escape';
-  if (!isDone) return;
-  clearSearch();
-  searchEl.blur();
+  if (e.key !== 'Escape') return;
+  if (searchEl.value === '') closeSheet();
+  else clearSearch();
 });
 
-let isCollapsed = false;
-function setCollapsed(c) {
-  isCollapsed = c;
-  appEl.classList.toggle('is-collapsed', c);
-  collapseEl.setAttribute('aria-expanded', String(!c));
-  collapseEl.textContent = c ? '»' : '«';
-  collapseEl.title = c ? 'unfold panel (n)' : 'fold panel (n)';
-  collapseEl.setAttribute('aria-label', collapseEl.title);
-  if (c) clearSearch();
-}
-
-// The fold state is saved only once the player picks one.
-const NAV_KEY = 'sand.nav';
-function toggleNav() {
-  setCollapsed(!isCollapsed);
-  try { localStorage.setItem(NAV_KEY, isCollapsed ? 'collapsed' : 'open'); } catch {}
-}
-collapseEl.addEventListener('click', toggleNav);
-
-// UI size scales the panel and the overlays (--ui). Until the player picks
-// one, it follows the window: 100% up to 900 px tall, up to 125% above that.
+// UI size scales the rail, the sheets and the overlays (--ui). Until the
+// player picks one, it follows the window: 100% up to 900 px tall, up to 125%
+// above that.
 const UI_KEY = 'sand.ui';
-const autoUi = () => Math.min(1.25, Math.max(1, appEl.clientHeight / 900));
+const autoUi = () => clamp(appEl.clientHeight / 900, 1, 1.25);
 let ui = 1;
 function setUi(v) {
-  ui = Math.round(Math.min(2, Math.max(0.7, v)) * 20) / 20;
+  ui = Math.round(clamp(v, 0.7, 2) * 20) / 20;
   document.documentElement.style.setProperty('--ui', String(ui));
   document.getElementById('ui-value').textContent = `${Math.round(ui * 100)}%`;
 }
@@ -852,22 +1550,67 @@ document.getElementById('ui-up').addEventListener('click', () => nudgeUi(0.1));
 document.getElementById('ui-value').addEventListener('click', resetUi);
 
 let toastTimer = 0;
-function toast(text) {
-  toastEl.textContent = text;
+/** Pops a message, with a button if `action` is given ({ label, run }). */
+function toast(text, action = null) {
+  toastEl.replaceChildren(text);
+  if (action !== null) {
+    const b = Object.assign(document.createElement('button'), { type: 'button' });
+    b.textContent = action.label;
+    b.addEventListener('click', () => { toastEl.classList.remove('is-shown'); action.run(); });
+    toastEl.append(b);
+  }
   toastEl.classList.add('is-shown');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove('is-shown'), 2600);
+  toastTimer = setTimeout(() => toastEl.classList.remove('is-shown'), action === null ? 2600 : 8000);
 }
+
+// Clearing or a new scene keeps the world it replaced, so one undo brings it
+// back while the grid is the same size.
+let lastWorld = null;
+function keepWorld() {
+  lastWorld = { W, H, type: type.slice(), life: life.slice(), col: col.slice(), aux: aux.slice() };
+}
+function undo() {
+  const canUndo = lastWorld !== null && lastWorld.W === W && lastWorld.H === H;
+  if (!canUndo) return;
+  type.set(lastWorld.type); life.set(lastWorld.life); col.set(lastWorld.col); aux.set(lastWorld.aux);
+  clock.fill(0);
+  blasts.length = 0;
+  lastWorld = null;
+  const parts = ['back as it was'];
+  const a = earn('undo');
+  if (a !== null) parts.push(achievementNote([a]));
+  toast(parts.join(' · '));
+}
+const UNDO = { label: 'undo', run: undo };
+function newScene() {
+  keepWorld();
+  scene();
+  closeSheet();
+  toast('new scene', UNDO);
+}
+function clearWorld() {
+  keepWorld();
+  clear();
+  closeSheet();
+  toast('cleared', UNDO);
+}
+document.getElementById('scene').addEventListener('click', newScene);
+document.getElementById('clear').addEventListener('click', clearWorld);
 
 function discover(t) {
   found.add(MAT[t].name);
   try { localStorage.setItem(FOUND_KEY, JSON.stringify([...found])); } catch {}
   showFound(t);
-  const isAll = SECRETS.every(s => found.has(MAT[s].name));
-  if (isAll) toast(`discovered ${MAT[t].name} · that's all ${SECRETS.length}`);
-  else toast(`discovered ${MAT[t].name}`);
+  const parts = [`discovered ${MAT[t].name}`];
+  if (tiles.has(t)) parts.push('now in materials');
+  const won = checkAchievements();
+  if (won.length > 0) parts.push(achievementNote(won));
+  if (isAllFound()) parts.push('clone and drain unlocked');
+  toast(parts.join(' · '));
 }
 
+/** Rebuilds the discoveries list and unlocks what's been earned; `fresh` is the one just made. */
 function showFound(fresh) {
   const rows = SECRETS.map(t => {
     const m = MAT[t];
@@ -875,7 +1618,7 @@ function showFound(fresh) {
     if (found.has(m.name)) {
       li.dataset.find = `${m.name} ${m.how}`;
       li.innerHTML = '<span class="sw"></span><span class="label"><span></span><small></small></span>';
-      li.querySelector('.sw').style.background = m.colors[m.colors.length - 1];
+      li.querySelector('.sw').style.backgroundImage = swatches[t];
       li.querySelector('.label > span').textContent = m.name;
       li.querySelector('small').textContent = m.how;
       if (t === fresh) li.className = 'new';
@@ -895,27 +1638,157 @@ function showFound(fresh) {
   const countEl = document.getElementById('found-count');
   countEl.textContent = `${count} / ${SECRETS.length}`;
   countEl.classList.toggle('is-complete', count === SECRETS.length);
+  for (const [t, b] of tiles) b.classList.toggle('locked', isLocked(t));
+  const isFinal = fresh !== undefined && isAllFound();
+  const freshTiles = [fresh, ...(isFinal ? PRIZES : [])].map(t => tiles.get(t)).filter(Boolean);
+  for (const b of freshTiles) {
+    b.classList.add('new');
+    b.addEventListener('animationend', () => b.classList.remove('new'), { once: true });
+  }
+  if (freshTiles.length > 0 && sheet !== materialsEl) allEl.classList.add('has-new');
   filter();
 }
 
-const brushEl = document.getElementById('brush');
-function setBrush(r) {
-  brush = Math.max(0, Math.min(30, r));
-  brushEl.value = brush;
-  document.getElementById('size').textContent = brush * 2 + 1;
+// Achievements, in the order the sheet lists them. Those with a `test` are
+// checked twice a second of play against `census()`, `made` and `feats`; the
+// rest are earned where they happen. None can be earned by a scene on its
+// own. Saved per browser in `sand.achieved`.
+const ACHIEVED_KEY = 'sand.achieved';
+const ACHIEVEMENTS = [
+  { id: 'halfway', name: 'halfway', goal: 'make 10 of the 19 discoveries', test: s => s.found >= 10 },
+  { id: 'all-found', name: 'every last one', goal: 'make all 19 discoveries; clone and drain join the materials',
+    test: s => s.found >= SECRETS.length },
+  { id: 'chain', name: 'chain reaction', goal: '25 blasts within a second', test: () => feats.blastBurst >= 25 },
+  { id: 'firestorm', name: 'firestorm', goal: '1,500 cells burning at once', test: s => s.fire >= 1500 },
+  { id: 'demolition', name: 'demolition', goal: 'blast away 1,000 cells of stone', test: () => feats.stoneBlasted >= 1000 },
+  { id: 'storm', name: 'storm', goal: 'a cloud strikes on its own', test: () => feats.selfStrikes > 0 },
+  { id: 'rod', name: 'lightning rod', goal: 'a bolt runs through 200 cells of metal and lights something',
+    test: () => feats.longestRod >= 200 },
+  { id: 'glass', name: 'glassblower', goal: 'make 1,000 cells of glass', test: () => made[GLASS] >= 1000 },
+  { id: 'salt', name: 'salt flats', goal: 'boil brine down to 200 grains of salt', test: () => made[SALT] >= 200 },
+  { id: 'rust', name: 'shipwreck', goal: 'rust 100 cells of metal', test: () => made[RUST] >= 100 },
+  { id: 'flowers', name: 'green thumb', goal: '30 flowers in bloom at once', test: s => s.hearts >= 30 },
+  { id: 'bees', name: 'beekeeper', goal: '12 bees at once', test: s => s.bees >= 12 },
+  { id: 'honey', name: 'sweet tooth', goal: 'bees make 300 cells of honey', test: () => made[HONEY] >= 300 },
+  { id: 'palette', name: 'full palette', goal: '20 different materials on screen at once', test: s => s.kinds >= 20 },
+  { id: 'perpetual', name: 'perpetual motion', goal: 'a drain swallows 1,000 cells while a clone pours',
+    test: s => s.drainedWhilePouring >= 1000 },
+  { id: 'undo', name: 'second thoughts', goal: 'undo a clear or a new scene', isSecret: true },
+  { id: 'rainbow', name: 'rainbow', goal: 'the old code: ↑ ↑ ↓ ↓ ← → ← → b a', isSecret: true },
+];
+let achieved = new Set();
+try { achieved = new Set(JSON.parse(localStorage.getItem(ACHIEVED_KEY) || '[]')); } catch {}
+const achievementNote = won => `achievement: ${won.map(a => a.name).join(', ')}`;
+
+let pourStart = 0; // what drains had swallowed when the clones last started pouring
+
+/** Counts what's on screen that achievements look for. */
+function census() {
+  let fire = 0, bees = 0, hearts = 0, isPouring = false;
+  const seen = new Uint8Array(MAT.length);
+  for (let i = 0; i < N; i++) {
+    const t = type[i];
+    seen[t] = 1;
+    if (t === FIRE) fire++;
+    else if (t === BEE) bees++;
+    else if (t === FLOWER && col[i] === FLOWER_HEART) hearts++;
+    else if (t === CLONE && life[i] !== E) isPouring = true;
+  }
+  if (!isPouring) pourStart = feats.swallowed;
+  return {
+    found: SECRETS.filter(t => found.has(MAT[t].name)).length,
+    fire, bees, hearts,
+    kinds: seen.reduce((sum, v) => sum + v, 0) - seen[E],
+    drainedWhilePouring: feats.swallowed - pourStart,
+  };
 }
-brushEl.addEventListener('input', () => setBrush(+brushEl.value));
+
+/** Marks an achievement earned, flashing it unless `isFresh` is false; returns it if that's news, otherwise null. */
+function earn(id, isFresh = true) {
+  if (achieved.has(id)) return null;
+  achieved.add(id);
+  try { localStorage.setItem(ACHIEVED_KEY, JSON.stringify([...achieved])); } catch {}
+  showAchievements(isFresh ? id : undefined);
+  return ACHIEVEMENTS.find(a => a.id === id);
+}
+
+/** Earns every achievement whose test passes and returns them; the caller says so. */
+function checkAchievements(isFresh = true) {
+  const s = census();
+  const won = ACHIEVEMENTS.filter(a => a.test !== undefined && !achieved.has(a.id) && a.test(s));
+  for (const a of won) earn(a.id, isFresh);
+  return won;
+}
+
+/** Rebuilds the achievements list; `fresh` is the one just earned. A secret shows as "?" until then. */
+function showAchievements(fresh) {
+  const rows = ACHIEVEMENTS.map(a => {
+    const isEarned = achieved.has(a.id);
+    const isHidden = a.isSecret === true && !isEarned;
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="mark"></span><span class="label"><span></span><small></small></span>';
+    li.querySelector('.label > span').textContent = isHidden ? '?' : a.name;
+    li.querySelector('small').textContent = isHidden ? 'a secret' : a.goal;
+    li.dataset.find = isHidden ? 'secret' : `${a.name} ${a.goal}`;
+    li.classList.toggle('earned', isEarned);
+    li.classList.toggle('new', a.id === fresh);
+    return li;
+  });
+  document.getElementById('achievements').replaceChildren(...rows);
+  const count = ACHIEVEMENTS.filter(a => achieved.has(a.id)).length;
+  const countEl = document.getElementById('achieved-count');
+  countEl.textContent = `${count} / ${ACHIEVEMENTS.length}`;
+  countEl.classList.toggle('is-complete', count === ACHIEVEMENTS.length);
+  if (fresh !== undefined && sheet !== materialsEl) allEl.classList.add('has-new');
+  filter();
+}
+
+// Brush widths on screen, in px, that the size sheet offers; the wheel and
+// [ ] step between them.
+const SIZES = [6, 14, 28, 56];
+const cellPx = () => cv.getBoundingClientRect().width / W;
+const widthToRadius = px => clamp(Math.round((px / cellPx() - 1) / 2), 0, 30);
+const dotFor = px => clamp(Math.round(4 + px / 2.7), 5, 26); // the dot that stands for a brush px wide
+const sizeDotEl = document.getElementById('size-dot');
+const sizeBtns = SIZES.map(px => {
+  const b = Object.assign(document.createElement('button'), { type: 'button' });
+  b.setAttribute('aria-label', `brush ${px} px across`);
+  b.innerHTML = '<span class="dot"></span>';
+  b.firstChild.style.width = b.firstChild.style.height = `${dotFor(px)}px`;
+  b.addEventListener('click', () => { setBrush(widthToRadius(px)); closeSheet(); });
+  document.getElementById('size-options').append(b);
+  return b;
+});
+
+function setBrush(r) {
+  brush = clamp(r, 0, 30);
+  const px = (2 * brush + 1) * cellPx();
+  sizeDotEl.style.width = sizeDotEl.style.height = `${dotFor(px)}px`;
+  let near = 0;
+  SIZES.forEach((s, k) => { if (Math.abs(s - px) < Math.abs(SIZES[near] - px)) near = k; });
+  sizeBtns.forEach((b, k) => b.setAttribute('aria-pressed', String(k === near)));
+}
+
+/** The strip shows what's under the brush while a pointer is over the sandbox, and pause. */
+function showHud() {
+  hudEl.hidden = underWrapEl.hidden && stateEl.textContent === '';
+}
 
 function showState() {
   const parts = [];
   if (paused) parts.push('paused');
   if (isRainbow) parts.push('rainbow sand');
-  document.getElementById('state').textContent = parts.join(' · ');
+  stateEl.textContent = parts.join(' · ');
+  showHud();
 }
 
+const PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6v12M15 6v12"/></svg>';
+const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8.5 5.5v13l10-6.5z"/></svg>';
 function setPaused(p) {
   paused = p;
-  document.querySelector('#pause .label').textContent = p ? 'play' : 'pause';
+  pauseEl.querySelector('.face').innerHTML = p ? PLAY_ICON : PAUSE_ICON;
+  pauseEl.querySelector('.name').textContent = p ? 'play' : 'pause';
+  pauseEl.title = `${p ? 'play' : 'pause'} (space)`;
   showState();
 }
 
@@ -931,7 +1804,10 @@ function trackKonami(key) {
   konami = 0;
   isRainbow = !isRainbow;
   if (isRainbow) pick(SAND);
-  toast(isRainbow ? 'rainbow sand' : 'plain sand again');
+  const parts = [isRainbow ? 'rainbow sand' : 'plain sand again'];
+  const a = isRainbow ? earn('rainbow') : null;
+  if (a !== null) parts.push(achievementNote([a]));
+  toast(parts.join(' · '));
   showState();
   return true;
 }
@@ -948,7 +1824,7 @@ function cell(e) {
 
 function dab(cx, cy, erase) {
   const r2 = brush * brush + brush;
-  const fill = LOOSE.has(mat) ? 0.3 : 1;
+  const fill = fills.get(mat);
   const isRainbowSand = isRainbow && mat === SAND;
   const hue = performance.now() / 4000; // drifts over time and across x
   for (let dy = -brush; dy <= brush; dy++) {
@@ -957,15 +1833,17 @@ function dab(cx, cy, erase) {
       const x = cx + dx, y = cy + dy;
       if (x < 0 || x >= W || y < 0 || y >= H) continue;
       const i = y * W + x;
-      if (erase) { set(i, E); continue; }
+      if (erase) { place(i, E); continue; }
       if (type[i] !== E || rnd() > fill) continue;
-      set(i, mat, startLife(mat));
+      place(i, mat, startLife(mat));
       if (isRainbowSand) col[i] = rainbow((hue + x / 60) % 1);
     }
   }
 }
 
 function paint(p) {
+  const isStrike = !p.erase && mat === LIGHTNING;
+  if (isStrike) return; // one bolt per press, from pointerdown
   const dist = Math.max(Math.abs(p.x - p.lx), Math.abs(p.y - p.ly));
   const steps = Math.max(1, Math.ceil(dist / Math.max(1, brush / 2)));
   for (let s = 1; s <= steps; s++) {
@@ -979,12 +1857,15 @@ function paint(p) {
 // otherwise skip whole stretches.
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
+  if (sheet !== null) { closeSheet(); return; }
   try { cv.setPointerCapture(e.pointerId); } catch {} // throws for pointers the browser no longer tracks
   const c = cell(e);
-  const isErase = e.button === 2 || mat === E;
+  const isErase = e.button === 2 || isErasing;
   const p = { x: c.x, y: c.y, lx: c.x, ly: c.y, erase: isErase };
   pointers.set(e.pointerId, p);
   hover = c;
+  const isStrike = !isErase && mat === LIGHTNING;
+  if (isStrike) strike(c.x);
   paint(p);
 });
 cv.addEventListener('pointermove', e => {
@@ -1011,26 +1892,27 @@ cv.addEventListener('wheel', e => {
 
 addEventListener('keydown', e => {
   const isTyping = e.target === searchEl;
-  if (e.ctrlKey || e.metaKey || e.altKey || isTyping) return;
-  if (trackKonami(e.key.toLowerCase())) return; // its last key, a, is also acid's
-  const tool = TOOLS.find(([, key]) => key === e.key);
-  if (tool) { pick(tool[0]); return; }
+  if (isTyping || e.altKey) return;
+  const isUndo = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z';
+  if (isUndo) { e.preventDefault(); undo(); return; }
+  if (e.ctrlKey || e.metaKey) return;
+  if (trackKonami(e.key.toLowerCase())) return;
+  const slot = '123456789'.indexOf(e.key);
+  if (slot >= 0 && slot < slotCount) { pick(slots[slot]); return; }
   switch (e.key) {
     case ' ': e.preventDefault(); setPaused(!paused); break;
-    case 'c': clear(); break;
-    case 'r': scene(); break;
-    case 'n': toggleNav(); break;
+    case 'e': setErasing(!isErasing); break;
+    case 'c': clearWorld(); break;
+    case 'r': newScene(); break;
     case '-': nudgeUi(-0.1); break;
     case '=':
     case '+': nudgeUi(0.1); break;
-    case '/': e.preventDefault(); setCollapsed(false); searchEl.focus(); break;
+    case '/': e.preventDefault(); openSheet(materialsEl); searchEl.focus(); break;
+    case 'Escape': closeSheet(); break;
     case '[': setBrush(brush - 1); break;
     case ']': setBrush(brush + 1); break;
   }
 });
-document.getElementById('pause').addEventListener('click', () => setPaused(!paused));
-document.getElementById('clear').addEventListener('click', () => clear());
-document.getElementById('scene').addEventListener('click', () => scene());
 
 // --- app -------------------------------------------------------------------
 
@@ -1041,15 +1923,14 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 }
 
 // Browsers that can install the app say so with this event. The button only
-// exists while that offer stands, so search never finds a dead one.
+// exists in the menu while that offer stands.
 let installOffer = null;
 addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   installOffer = e;
   if (document.getElementById('install')) return;
-  const b = document.createElement('button');
+  const b = Object.assign(document.createElement('button'), { type: 'button' });
   b.id = 'install';
-  b.dataset.find = 'install app offline';
   b.innerHTML = '<span class="label">install <small>play offline, own window</small></span>';
   b.addEventListener('click', async () => {
     if (!installOffer) return;
@@ -1058,73 +1939,238 @@ addEventListener('beforeinstallprompt', e => {
     installOffer = null;
     b.remove();
   });
-  document.querySelector('#clear').after(b);
-  filter();
+  document.getElementById('clear').after(b);
 });
 addEventListener('appinstalled', () => document.getElementById('install')?.remove());
 
 // --- world -----------------------------------------------------------------
 
 function clear() {
-  type.fill(E); life.fill(0); clock.fill(0); col.fill(BG); vel.fill(0);
+  type.fill(E); life.fill(0); clock.fill(0); col.fill(BG); aux.fill(0);
+  blasts.length = 0;
 }
 
 function rect(x0, y0, x1, y1, t) {
   for (let y = y0; y <= y1; y++)
     for (let x = x0; x <= x1; x++)
-      set(y * W + x, t, startLife(t));
+      place(y * W + x, t, startLife(t));
 }
 
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (rnd() * (i + 1)) | 0;
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Plan rows: ledges float above SKY, and nothing on the ground is built up into it.
+const SKY = 85;
+
 /**
- * The starting scene, drawn on a 300 × 180 plan. The plan is scaled evenly to
- * fit right of the panel, so nothing starts out under it, and stands on the
- * bottom edge; the ground runs the full width. Walls stay 3 cells thick.
+ * A new random scene each call, drawn on a 300 × 180 plan. The plan is scaled
+ * evenly to fit right of the rail, so nothing starts out under it, and stands
+ * on the bottom edge; the ground runs the full width. Walls stay 3 cells thick.
+ *
+ * Up to two discoveries stand in it as hints, mostly ones not found yet.
+ * Seeing one doesn't discover it: the scene only places cells, and discovering
+ * takes a reaction. So nothing reacts at the start: lava is sealed in stone,
+ * seeds sit dry, acid comes only in a glass jar, and there are no flowers,
+ * metal or clouds.
  */
 function scene() {
   clear();
   const box = cv.getBoundingClientRect();
-  const x0 = Math.min(W >> 1, Math.ceil((navEl.getBoundingClientRect().right - box.left) / (box.width / W)));
+  const x0 = Math.min(W >> 1, Math.ceil((railEl.getBoundingClientRect().right - box.left) / (box.width / W)));
   const k = Math.min((W - 1 - x0) / 300, (H - 1) / 180);
   const left = x0 + ((W - 1 - x0) - 300 * k) / 2, top = (H - 1) - 180 * k;
   const X = v => Math.round(left + v * k);
   const Y = v => Math.round(top + v * k);
+
+  // Rolling sand over a thin bedrock: a broad swell, hills and ripples, each
+  // gentle enough that nothing slides at the start.
+  const level = between(148, 166);
+  // Each wave: amplitude range, then length range, in plan units.
+  const waves = [[0, 10, 70, 140], [2, 7, 25, 50], [0.5, 2.5, 7, 14]]
+    .map(([a0, a1, l0, l1]) => [between(a0, a1), between(l0, l1), rnd() * 2 * Math.PI]);
+  const rockLen = between(10, 30), rockPhase = rnd() * 2 * Math.PI;
+  const ground = new Int16Array(W); // top row of the sand in each column
   for (let x = 0; x < W; x++) {
     const u = (x - left) / k;
-    const ground = Y(166) + Math.round((4 * Math.sin(u / 23) + 2 * Math.sin(u / 7)) * k);
-    rect(x, ground, x, H - 1, SAND);
+    let v = level;
+    for (const [amp, len, phase] of waves) v += amp * Math.sin(u / len + phase);
+    ground[x] = Y(Math.min(v, 174));
+    rect(x, ground[x], x, H - 1, SAND);
+    const rock = Y(173 + 3 * Math.sin(u / rockLen + rockPhase));
+    rect(x, Math.max(rock, ground[x] + 3), x, H - 1, STONE);
   }
-  // Left basin: water under a layer of oil.
-  const bl = X(30), br = X(110), bt = Y(92), bb = Y(136);
-  rect(bl, bt, bl + 2, bb, STONE);
-  rect(br - 2, bt, br, bb, STONE);
-  rect(bl, bb - 2, br, bb, STONE);
-  rect(bl + 3, Y(104), br - 3, bb - 3, WATER);
-  rect(bl + 3, Y(97), br - 3, Y(104) - 1, OIL);
-  // Right shelf: a shallow pool with a plant at one end.
-  const sl = X(190), sr = X(280), sb = Y(120), st = Y(108);
-  rect(sl, sb, sr, sb + 2, STONE);
-  rect(sl, st, sl + 2, sb - 1, STONE);
-  rect(sr - 2, st, sr, sb - 1, STONE);
-  rect(sl + 7, Y(112), sr - 3, sb - 1, WATER);
-  rect(sl + 3, Y(106), sl + 6, sb - 1, PLANT);
-  // A ledge to pour things over.
-  rect(X(140), Y(60), X(175), Y(60) + 2, STONE);
+
+  // The floor row of a box `depth` deep: on the highest ground under it, half
+  // the time up on legs.
+  function stand(l, r, depth) {
+    let floor = H;
+    for (let x = l; x <= r; x++) floor = Math.min(floor, ground[x] - 1);
+    const room = Math.max(0, floor - depth - Y(SKY));
+    const isOnLegs = rnd() < 0.5;
+    return floor - (isOnLegs ? Math.round(rnd() * room) : 0);
+  }
+
+  // Walls and floor of `wall`, on stone legs down to the ground.
+  function vessel(l, r, rim, floor, wall) {
+    rect(l, rim, l + 2, floor, wall);
+    rect(r - 2, rim, r, floor, wall);
+    rect(l, floor - 2, r, floor, wall);
+    for (const x of [l, l + 1, l + 2, r - 2, r - 1, r]) rect(x, floor + 1, x, ground[x] - 1, STONE);
+  }
+
+  // A stone basin, or for 'jar' a glass one, holding `fill`.
+  function basin(l, r, fill) {
+    const depth = Math.round(between(18, 44) * k);
+    const floor = stand(l, r, depth), rim = floor - depth;
+    const isJar = fill === 'jar';
+    vessel(l, r, rim, floor, isJar ? GLASS : STONE);
+    const inL = l + 3, inR = r - 3, inB = floor - 3;
+    const brim = rim + Math.round(depth * between(0.1, 0.25));
+    const layer = Math.min(inB, brim + Math.max(2, Math.round((inB - brim) * between(0.2, 0.4))));
+    switch (fill) {
+      case 'oil': // water under oil
+        rect(inL, layer, inR, inB, WATER);
+        rect(inL, brim, inR, layer - 1, OIL);
+        break;
+      case 'ice': // water under ice, which slowly freezes it
+        rect(inL, layer, inR, inB, WATER);
+        rect(inL, brim, inR, layer - 1, ICE);
+        break;
+      case 'snow': { // the same, with snow lying on the ice
+        const crust = brim + ((layer - brim) >> 1);
+        rect(inL, layer, inR, inB, WATER);
+        rect(inL, crust, inR, layer - 1, ICE);
+        rect(inL, brim, inR, crust - 1, SNOW);
+        break;
+      }
+      case 'reeds': { // water with a plant at one end, standing out of it
+        const reed = rnd() < 0.5 ? inL : inR - 3;
+        rect(inL, layer, inR, inB, WATER);
+        rect(reed, brim, reed + 3, inB, PLANT);
+        break;
+      }
+      case 'jar': // acid, which can't eat glass
+        rect(inL, brim, inR, inB, ACID);
+        break;
+      case 'honey': // a pot of it
+        rect(inL, brim, inR, inB, HONEY);
+        break;
+      default: // a tank of oil
+        rect(inL, brim, inR, inB, OIL);
+    }
+  }
+
+  // A dip dug into the ground and filled to just under its lower rim, with a
+  // raft of pumice afloat in the middle if asked.
+  function lake(l, r, hasRaft) {
+    const rimDrop = Math.abs(ground[l] - ground[r]);
+    const depth = Math.min(rimDrop + between(8, 14) * k, 0.25 * (r - l)); // banks under 45°
+    const surface = Math.max(ground[l], ground[r]) + 1;
+    for (let x = l; x <= r; x++) {
+      const t = (x - l) / (r - l);
+      const bowl = ground[l] + (ground[r] - ground[l]) * t + depth * Math.sin(Math.PI * t);
+      const bed = Math.max(ground[x], Math.round(bowl));
+      rect(x, ground[x], x, Math.min(bed, surface) - 1, E);
+      rect(x, surface, x, bed - 1, WATER);
+    }
+    if (!hasRaft) return;
+    const mid = (l + r) >> 1, half = Math.max(2, Math.round((r - l) * between(0.06, 0.12)));
+    rect(mid - half, surface - 1, mid + half, surface - 1, PUMICE);
+    rect(mid - half + 1, surface - 2, mid + half - 1, surface - 2, PUMICE); // narrower, so no corner slides
+  }
+
+  // A stone mound with lava sealed inside, 3 cells from anything on every side.
+  // A crusted one has an obsidian cap.
+  function volcano(l, r, isCrusted) {
+    let base = 0;
+    for (let x = l; x <= r; x++) base = Math.min(H - 1, Math.max(base, ground[x] + 2));
+    const half = (r - l) >> 1;
+    const height = Math.max(7, Math.round(half * between(0.45, 0.8)));
+    for (let d = 0; d <= height; d++) {
+      const isCap = isCrusted && d > height - 3;
+      rect(l + d, base - d, r - d, base - d, isCap ? OBSIDIAN : STONE);
+      const isCore = d >= 3 && d <= height - 3;
+      if (isCore) rect(l + d + 3, base - d, r - d - 3, base - d, LAVA);
+    }
+  }
+
+  // A trough of dry sand with seeds on it, waiting for water. With ash, the
+  // seeds lie on a layer of it.
+  function planter(l, r, hasAsh) {
+    const depth = Math.round(between(12, 20) * k);
+    const floor = stand(l, r, depth), rim = floor - depth;
+    vessel(l, r, rim, floor, STONE);
+    const soil = rim + Math.max(2, Math.round(between(3, 6) * k));
+    rect(l + 3, soil, r - 3, floor - 3, SAND);
+    if (hasAsh) rect(l + 3, soil, r - 3, Math.min(soil + 1, floor - 3), ASH);
+    for (let x = l + 3; x <= r - 3; x++) if (rnd() < 0.3) place((soil - 1) * W + x, SEED);
+  }
+
+  // Pieces on the ground, as [kind, build, min width, max width].
+  const plainBasin = (l, r) => basin(l, r, ['oil', 'ice', 'tank'][(rnd() * 3) | 0]);
+  const pieces = [
+    ['basin', plainBasin, 50, 90], ['basin', plainBasin, 50, 90], ['lake', (l, r) => lake(l, r, false), 70, 110],
+    ['volcano', (l, r) => volcano(l, r, false), 50, 80], ['planter', (l, r) => planter(l, r, false), 35, 60],
+  ];
+  const hintPieces = new Map([
+    [PLANT, ['basin', (l, r) => basin(l, r, 'reeds'), 50, 90]],
+    [SNOW, ['basin', (l, r) => basin(l, r, 'snow'), 50, 90]],
+    [GLASS, ['basin', (l, r) => basin(l, r, 'jar'), 35, 60]],
+    [HONEY, ['basin', (l, r) => basin(l, r, 'honey'), 35, 60]],
+    [OBSIDIAN, ['volcano', (l, r) => volcano(l, r, true), 50, 80]],
+    [PUMICE, ['lake', (l, r) => lake(l, r, true), 70, 110]],
+    [ASH, ['planter', (l, r) => planter(l, r, true), 35, 60]],
+  ]);
+
+  // Up to two hints, leaning one, each standing in for a piece of its kind.
+  // Ones not found yet are three times as likely.
+  const hintCount = [0, 1, 1, 1, 2][(rnd() * 5) | 0];
+  const pool = shuffle([...hintPieces.keys()].flatMap(t => Array(isLocked(t) ? 3 : 1).fill(t)));
+  const hints = [...new Set(pool)].slice(0, hintCount).map(t => hintPieces.get(t));
+  for (const hint of hints) pieces.splice(pieces.findIndex(p => p[0] === hint[0]), 1);
+
+  // Hints are picked first so they always fit; then everything stands left to
+  // right in a random order.
+  const start = between(4, 24);
+  let room = 296 - start;
+  const picked = [];
+  for (const [, build, minW, maxW] of [...hints, ...shuffle(pieces)]) {
+    const w = between(minW, maxW), gap = between(8, 30);
+    const isTooWide = w + gap > room;
+    if (isTooWide) continue;
+    picked.push([build, w, gap]);
+    room -= w + gap;
+  }
+  let u = start;
+  for (const [build, w, gap] of shuffle(picked)) {
+    build(X(u), X(u + w));
+    u += w + gap;
+  }
+
+  // Ledges of stone or wood to pour things over, up to one in each half of the sky.
+  for (const half of [0, 150]) {
+    if (rnd() < 0.4) continue;
+    const w = between(20, 50), at = half + between(0, 150 - w), v = between(35, SKY - 10);
+    rect(X(at), Y(v), X(at + w), Y(v) + 2, rnd() < 0.3 ? WOOD : STONE);
+  }
 }
 
 // --- render ----------------------------------------------------------------
 
 function render() {
   for (let i = 0; i < N; i++) {
-    const t = type[i];
-    if (t === FIRE) buf[i] = firePal[life[i]];
-    else if (t === EMBER) buf[i] = firePal[life[i] + 20];
-    else if (t === SMOKE) buf[i] = smokePal[life[i]];
-    else buf[i] = col[i];
+    const p = pal[type[i]];
+    buf[i] = p === null ? col[i] : p[life[i]];
   }
   ctx.putImageData(img, 0, 0);
   const rings = pointers.size ? [...pointers.values()] : [hover].filter(Boolean);
   if (!rings.length) return;
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.strokeStyle = isErasing ? 'rgba(255,140,140,0.7)' : 'rgba(255,255,255,0.45)';
   ctx.lineWidth = 0.6;
   ctx.beginPath();
   for (const r of rings) {
@@ -1138,14 +2184,23 @@ const underEl = document.getElementById('under');
 let shownUnder = '';
 function showUnder() {
   const isInside = hover && hover.x >= 0 && hover.x < W && hover.y >= 0 && hover.y < H;
-  const name = isInside ? MAT[type[hover.y * W + hover.x]].name : '—';
+  let name = '';
+  if (isInside) {
+    const i = hover.y * W + hover.x, t = type[i];
+    name = MAT[t].name;
+    const isPouring = t === CLONE && life[i] !== E;
+    if (isPouring) name += ` of ${MAT[life[i]].name}`;
+  }
   if (name === shownUnder) return;
-  underEl.textContent = name;
   shownUnder = name;
+  underEl.textContent = name;
+  underWrapEl.hidden = name === '';
+  showHud();
 }
 
 const DT = 1000 / 60;
 let last = performance.now(), acc = 0;
+let nextCheck = 0; // the age at which achievements are next checked
 function frame(now) {
   acc = Math.min(acc + now - last, DT * 3);
   last = now;
@@ -1153,6 +2208,11 @@ function frame(now) {
     for (const p of pointers.values()) paint(p);
     if (!paused) step();
     acc -= DT;
+  }
+  if (age >= nextCheck) {
+    nextCheck = age + 30;
+    const won = checkAchievements();
+    if (won.length > 0) toast(achievementNote(won));
   }
   render();
   showUnder();
@@ -1166,19 +2226,17 @@ new ResizeObserver(() => {
   clearTimeout(reshapeTimer);
   reshapeTimer = setTimeout(shapeGrid, 150);
 }).observe(stageEl);
-let savedUi = NaN, savedNav = null;
-try {
-  savedUi = parseFloat(localStorage.getItem(UI_KEY));
-  savedNav = localStorage.getItem(NAV_KEY);
-} catch {}
+let savedUi = NaN;
+try { savedUi = parseFloat(localStorage.getItem(UI_KEY)); } catch {}
 setUi(savedUi > 0 ? savedUi : autoUi());
-// Folded by default where the open panel would cover too much.
-const isCramped = navEl.offsetWidth * ui > appEl.clientWidth / 4;
-setCollapsed(savedNav === null ? isCramped : savedNav === 'collapsed');
+settleSlots();
 showFound();
-pick(SAND);
-// About a fingertip across on screen, whatever the cell size.
-setBrush(Math.max(2, Math.min(12, Math.round(15 / (cv.getBoundingClientRect().width / W)))));
+showAchievements();
+checkAchievements(false); // earns, without a fuss, what discoveries made before these existed
+fitSlots();
+new ResizeObserver(fitSlots).observe(slotsEl);
+pick(slots[0]);
+setBrush(widthToRadius(SIZES[1])); // about a fingertip across, whatever the cell size
 setPaused(false);
 scene();
 requestAnimationFrame(frame);
