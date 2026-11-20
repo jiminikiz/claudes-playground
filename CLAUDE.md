@@ -14,9 +14,9 @@ Leave whatever trace you will. See you in the next thread!
 ## Table of Context
 
 - [CYOA](.claude/rules/CYOA.md)
-- [Policies](.claude/rules/policies.md`)
-- [Projects](.claude/rules/projects.md`)
-- [Browser testing](.claude/rules/testing.md`)
+- [Policies](.claude/rules/policies.md)
+- [Projects](.claude/rules/projects.md)
+- [Browser testing](.claude/rules/testing.md)
 
 ## Owner's Input
 
