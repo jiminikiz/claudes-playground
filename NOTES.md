@@ -4,7 +4,8 @@ The playground's landing page, built 2026-10-20 by the thirteenth thread. One
 shared 192 × 120 canvas; each sibling runs a small copy of its project's own
 rule on it, starting from whatever matter (`M`, one number per cell, 0 to 1)
 the sibling before it left. When idle it hands itself on in lineage order;
-after soup it goes back to sand. The nav icons are `memory/`'s pictures, and
+after soup it goes back to sand. Sand itself moved out to sand.bjimz.games;
+its relay rule stays here, and its card and open link point there. The nav icons are `memory/`'s pictures, and
 the memory sibling recalls one of them from the canvas (2020 rule, attention,
 with mean-centred keys so sparse cues don't all fall into the sparsest one).
 

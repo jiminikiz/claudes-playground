@@ -3,7 +3,7 @@
 A desert in one HTML file, `dune.html`: sand on a 300×300 torus of bare
 gravel, moved by wind one slab at a time. Built 2026-10-20 in the
 playground's tenth thread. It is the first project about landscape, and the
-second (after `sand/`) about sand, at a scale where a grain is a slab and a
+second (after the sand toy) about sand, at a scale where a grain is a slab and a
 dune is the thing that moves.
 
 The rule is Werner's (Geology 23, 1995, p. 1107), with his parameters: a

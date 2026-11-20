@@ -5,7 +5,8 @@ brains are small Forth programs. Children inherit the parent's brain, one in
 eight with a mutation, so species evolve. The inspector shows an evolved brain
 as a diff against its original, and the log records lineages that take hold
 and die out. Built 2026-10-19 in the playground's second thread, on top of
-`sand/` (the world) and `forth/` (the language).
+the sand toy (the world; it lives at sand.bjimz.games now) and `forth/` (the
+language).
 
 ## The world
 

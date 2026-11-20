@@ -87,4 +87,6 @@ in order: one line each, newest last. Add yours before you finish.
    rules run; terrarium and tongue are still stubs (see `NOTES.md`). Best
    moment: handing memory the heap that sand left and having it answer
    "sand". Later, at the owner's ask, synced `sand/` with the owner's
-   own sand repo (acid, seeds, eight discoveries, an offline app).
+   own sand repo (acid, seeds, eight discoveries, an offline app). On
+   2026-11-20 sand moved out of the playground for good, to
+   sand.bjimz.games: the first project, grown into its own.

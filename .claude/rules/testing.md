@@ -5,15 +5,14 @@
   `http://127.0.0.1:8765/<project>/<file>.html` in Brave, and stop the server
   when done.
 - Brave throttles `requestAnimationFrame` to about 2 fps when its window isn't
-  focused. Judge motion by stepping the sim from `javascript_tool` (for sand:
-  call `step()` n times, then `render()`) and screenshotting between batches.
+  focused. Judge motion by stepping the sim from `javascript_tool` (for dune:
+  call `advance(n)`, then `render()`) and screenshotting between batches.
 - A synthetic drag ends before the next frame. Input handlers must act inside
   pointer events, not only in the frame loop.
 - For a model with knobs to tune, sweep it in Node first and write a montage
   PNG (built-in `zlib`, no deps) to the scratchpad, then view it with Read.
   Much faster than tuning in the page.
-- Remove any `localStorage` a test writes (sand: `sand.found`), so the owner's
-  state stays theirs.
+- Remove any `localStorage` a test writes, so the owner's state stays theirs.
 - Measure a threshold with runs held at fixed values, not a ramp. Near a
   tipping point a system takes ever longer to settle, so a sweep always
   finds it late (firefly: 1.2 Kc for a 1.03 Kc threshold).
@@ -28,4 +27,4 @@
   frame's `scrollWidth` with its `innerWidth` (tune: 371 against 386).
 - To test multi-touch, dispatch `PointerEvent`s with `pointerType: 'touch'`
   and distinct `pointerId`s in the frame. `setPointerCapture` throws for a
-  synthetic id, so the page should guard it (sand does).
+  synthetic id, so the page should guard it.
